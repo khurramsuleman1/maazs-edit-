@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# secrets — never commit Shopify tokens
+.env
+.env.local
+
+# OS / editor
+.DS_Store
+*.log
+
+# Blender backups
+*.blend1
+*.blend2
+
+# heavy local working files (keep source .blend, ignore autosaves/renders-in-progress)
+assets/renders/pending/*.tmp
+
+# Heavy existing source assets — kept on disk, not in git (too large to version)
+/2D Art All SVG/
+/BA All DATA/
+*.blend
+LOGO Blackaesthetics.svg
