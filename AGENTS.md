@@ -6,19 +6,14 @@
 
 ---
 
-## 0. One operator, two bodies
+## 0. Single operator
 
-Claude and Codex are **one continuous operator** working on this project, never at
-the same time. Whoever is running *is* "the agent." There is no handoff negotiation,
-no locking, no ownership split — only one worker that happens to wake up in different
-tools. `docs/STATUS.md` is the memory that carries across those wake-ups.
-
-So: don't address "the other AI," don't claim files against contention, don't ask who
-owns what. Just read the state, continue the work, and leave the state correct for
-next time.
+Work as one continuous agent in this workspace. There is no handoff bookkeeping,
+no ownership split, and no coordination layer beyond `docs/STATUS.md`, which carries
+the current state across sessions.
 
 Use whichever toolset fits the job: Blender MCP + vision for modeling/asset/review
-work, code tools for the Three.js/Vite/Shopify website. Same operator, right tool.
+work, code tools for the Three.js/Vite/Shopify website.
 
 ---
 
@@ -61,7 +56,8 @@ Blender and approved it.** This is the hard gate.
 
 Note: image-based products (posters, wall-art silhouettes, layered fronts) that use
 existing photos/SVGs as textures are data, not new Blender assets — they don't need the
-gate. The gate is for authored 3D geometry destined for the site as GLB.
+gate. Same for decimated copies of existing 3D-print STLs (D38). The gate is for authored
+3D geometry destined for the site as GLB.
 
 ---
 
@@ -87,6 +83,7 @@ Don't ask about trivial, reversible, clearly-specified steps — just do those.
 | File | Purpose | Read when | Write when |
 |---|---|---|---|
 | `STATUS.md` | **Live state.** Now / Next / Blocked. | **Every session, first.** | **Every session, before finishing.** |
+| `ARCHITECTURE.md` | **Geometric source of truth** — the whole 3D construct (coordinates, bay anatomy, materials, invariants). | **Before touching any geometry** (Blender or web layout). | Same session as ANY geometry change. Never regress from its §9 invariants. |
 | `DECISIONS.md` | Locked choices (tech + design). Append-only, terse. | When you need a settled decision. | When a decision gets locked. |
 | `ASSETS.md` | Asset pipeline table + gate status. | Before touching any asset. | When an asset changes stage. |
 | `CHANGELOG.md` | Append-only one-line history. | Rarely — only for "what happened when". | One line, every session. |
@@ -111,21 +108,22 @@ you need the past.
 BlackAestheticspk/
 ├── AGENTS.md              ← this file (read first)
 ├── CLAUDE.md              ← pointer to this file
-├── README.md              ← human overview + how to run
-├── ba_spec_v2.md          ← full product spec (source of truth for WHAT to build)
+├── README.md              ← human overview
+├── ba_spec_v2.md          ← historical product spec (STATUS/ARCHITECTURE win on conflicts)
 ├── docs/                  ← the memory system
-│   ├── STATUS.md  DECISIONS.md  ASSETS.md  CHANGELOG.md  CATALOG.md
-├── src/                   ← website code (Three.js + Vite)
-│   ├── main.js  scene/  controllers/  shopify/  data/  ui/
-├── public/                ← static files served as-is (incl. products/ images)
-├── assets/                ← blender/ · renders/ · glb/ (APPROVED only) · textures/
-└── (existing source art — DO NOT move without asking)
-    ├── 2D Art All SVG/   BA All DATA/   *.blend
+│   ├── STATUS.md  ARCHITECTURE.md  DECISIONS.md  ASSETS.md  CHANGELOG.md  CATALOG.md
+├── public/                ← products/ images + logo svg (kept through the 2026-07-03 reset)
+├── assets/                ← glb/ (APPROVED exports) · textures/
+├── src/                   ← (deleted in reset — scaffolded fresh when web rebuild starts)
+└── (source art — DO NOT move without asking)
+    ├── 2D Art All SVG/
+    └── BA All DATA/All Multilayer Art-3/BAstore.blend   ← THE source of truth
+        (scenes: BA_SINGLE_WALL_HOME = gallery states · BA_PRODUCTS = product library)
 ```
 
-**Existing art folders and the big .blend files stay where they are** — they reference
-each other by path. Migration into `assets/` is a *proposed* future step in STATUS, done
-only with approval.
+**Source art folders and `BAstore.blend` stay where they are** — paths are referenced.
+Everything superseded was deleted in the 2026-07-03 reset (D29). QA render PNGs are
+never kept on disk (D30).
 
 ---
 
@@ -135,6 +133,19 @@ only with approval.
 - Run dev server: `npm install` then `npm run dev`.
 - Keep secrets out of git: Shopify tokens go in `.env` (gitignored), never in `src/`.
 - One file = one concern. Keep modules small. Comment the *why*, not the *what*.
+
+### Blender→web AESTHETIC PARITY (how the site must look)
+- The look is defined by TWO references, in this order: the live `BAstore.blend`
+  (materials/lights — exact values) and
+  `docs/inspiration-references/single-wall-home-front-render-target-web-16x9-v1.png`
+  (light DRAMA — fixture scallops, recess pucks, warm pools, dark falloff, floor glow).
+- **Color parity law (D37):** web colors are Blender linear values converted to sRGB —
+  never eyeballed. If a Blender material/light changes, recompute and update
+  `src/scene/GalleryScene.js` in the same session.
+- Product runtime contracts: Wall Art = extruded SVG (black wood #302c29) ·
+  Digital Art = POSTER, print file as the front-face texture of one black sheet mesh (D36) ·
+  Layered Art = stepped extruded SVG cut layers (D33) ·
+  3D Objects = decimated real STLs from `public/products/3d/` (D38).
 
 ---
 

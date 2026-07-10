@@ -1,25 +1,19 @@
 # Inspiration References
 
-Preview-only visual references for the Black Aesthetics 3D world storefront.
-These are not approved web assets and do not bypass the Blender approval flow.
+Preview-only visual references for the Black Aesthetics 3D storefront.
+These do not bypass the Blender approval gate.
 
-- `3d-world-home-web-16x9-v1.png` — home entry, desktop.
-- `3d-world-home-mobile-9x16-v1.png` — home entry, mobile.
-- `3d-world-category-web-16x9-v1.png` — category hall, desktop.
-- `3d-world-category-mobile-9x16-v1.png` — category hall, mobile.
-- `4cat-home-web-16x9-v1.png` — current D26 four-category home template, desktop.
-- `4cat-home-mobile-9x16-v1.png` — current D26 four-category home template, mobile.
-- `4cat-category-wallart-web-16x9-v1.png` — current D26 Wall Art focus template, desktop.
-- `4cat-category-wallart-mobile-9x16-v1.png` — current D26 Wall Art focus template, mobile.
-- `small-room-storefront-exact-logo-v2.png` — current approval candidate for the D20 direction:
-  compact luxury room, exact `LOGO Blackaesthetics.svg` composited as-is; superseded by the D26
-  four-category references for active layout.
+## Active Direction — D27/D28
 
-Direction to preserve:
-- Active Blender build instructions live in `../BLENDER_SMALL_ROOM_BUILD_BRIEF.md`.
-- The website feels like a walkable 3D world.
-- Scroll transitions move the camera through physical space.
-- Products are real 3D objects in the scene, not flat thumbnails or product-viewer panels.
-- The UI is sparse, secondary, and layered over the 3D environment.
-- Black products need pale surroundings, rim light, and clear silhouette contrast.
-- Active category layout excludes Apparel until a real apparel mesh/source exists.
+- `single-wall-home-front-render-target-web-16x9-v1.png` — **primary Blender render-match target** for the home page.
+- `single-wall-same-view-web-16x9-v1.png` — desktop reference for the one-wall system.
+- `single-wall-same-view-mobile-9x16-v1.png` — mobile reference for the same one-wall system.
+
+Build direction:
+- One continuous wall, not separate rooms or multiple walls.
+- Home, category, collection, and product viewer happen on the same wall.
+- Motion comes from camera distance, horizontal camera position, slight scroller tilt, and bay/product scale.
+- Each bay is prefab-like: backing, shelf/ledge, under-light, product mount, and shelf-front name plate.
+- The home Blender render should match the frontal target: black header band, warm cove line, visible spot rail,
+  four recessed bays, dark floor/skirting, BA wall mark, and physical shelf-front name plates.
+- Blender scene first, then website rebuild only after Master Khurram approves the scene in Blender.

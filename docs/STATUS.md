@@ -3,148 +3,114 @@
 > Source of truth. Always current. Read first, update before finishing.
 > Keep it short — finished work moves to CHANGELOG, not here.
 
-**Last updated:** 2026-07-02 by Codex (local git repo prepared; initial website commit ready/pushed once remote exists)
-**Phase:** 1 — Pipeline test: real products in Blender + wired into the website
+**Last updated:** 2026-07-11 by Codex (next-step review)
+**Phase:** Vite/Three.js single-wall runtime live at `http://localhost:5173/`; `BAstore.blend` remains the source of truth for geometry, materials, lighting intent, and exported layer vectors.
 **Shopify:** ✅ Admin connected via MCP — Black Aesthetics, PKR, Basic plan.
-**Operating mode:** Unified single operator (Claude+Codex are one worker, never concurrent). No
-Blender lock / file claims anymore — see AGENTS.md §0.
+**Operating mode:** Single operator. `docs/STATUS.md` carries the current session state.
 
 ---
 
-## ▶ Now — APPROVED BLENDER GALLERY IS IN THE WEBSITE
-**Scene `BA_GALLERY`** in **`BAstore.blend`** (renamed from All Multilayer Art.blend), collection
-`BA_REAL_SCALE_LAYOUT`. **Approved by Master Khurram on 2026-06-24** and cleared to drive the website
-environment. Current build:
+## ⭐ THE SOURCE OF TRUTH
 
-- **Walls (faceted, 8ft / 2.4384m, 6in thick):** center `0°`; inner display walls `±15°`; outer display
-  walls `±30°`; side returns `±90°` (perpendicular to center → enclosed room). Edges connected.
-  Warm beige plaster (noise-bump) material. Dark skirting (`BA_REAL_SKIRTING_*`) along every wall base.
-- **Floor + roof:** wood slabs rebuilt to the exact wall-edge footprint `x[-3.07,3.07] y[-0.29,2.75]`
-  (non-reflective). Roof bottom flush with wall tops. Floating **false-ceiling** panel + continuous warm
-  **perimeter cove LED** following the floor plan.
-- **Displays (each on its wall + matching un-mirrored bold label at z1.74):**
-  Wall Art = **horse-head SVG** 8mm black wood · Digital = **2×3ft 5mm acrylic** (ironman image) ·
-  centre = **BA logo** 1in · Layered = **grey Wolf** (4 layers, dark→light gradient, 18mm spacing, shows
-  depth) · **3D ART** = 6 dark-grey-wood 30×30cm 1in shelves staggered 2-column, each with a black sphere.
-  Each art wall has a grey-wood ledge + warm under-light (viewing template).
-- **Lighting:** broad soft diffuse fill + front fill + warm cove washes; soft per-art spotlights; **small
-  individual spot per 3D shelf**. Warm world ambient.
-- **Camera `BA_REAL_CAMERA`:** `(0, 7.8, 1.22)`, lens `44mm`, aimed `(0,0.55,1.08)` — tight framing on the
-  display band, minimal top/bottom void.
+- **`BA All DATA/All Multilayer Art-3/BAstore.blend`** — scenes `BA_SINGLE_WALL_HOME` (gallery states) + `BA_PRODUCTS` (product library).
+- **`docs/ARCHITECTURE.md`** — geometric memory + web parity contract. Read before touching scene or web layout.
+- **AGENTS.md §6 "Blender→web AESTHETIC PARITY"** — how the site must look (D36/D37/D38).
 
-- **Product arrays (staged hidden behind display walls):** `BA_WALLART_ARRAY` = 5 wall-art SVGs
-  (Athena/Astronaut/Lion/Wolf/Elephant) extruded 8mm black wood, queued behind the horse display;
-  `BA_LAYERED_ARRAY` = Bear + Mandala + Eclipse-Mandala, each a correctly-ordered grouped layer stack
-  (18 layer objects), queued behind the Wolf. Digital array not built (kept as single piece per instruction).
-  These complete the catalog products for Wall Art & Layered Art, ready to cycle to the front.
+## ▶ Now
 
-Latest preview: `docs/review-renders/ba_gallery_framed_v7.png`. Saved and approved.
+0. **FULLY LIT ROOM (D41, 2026-07-03, BOTH Blender + web):** ZERO spotlights — all SPOT
+   lights (track/product/big-bay) and fixture meshes deleted in Blender; all aimed spots +
+   wall scallops removed on web. Light = warm world/ambient + cove + big area fills + bay
+   warm pools (values in ARCHITECTURE §2/§4). Rail + stems stay; bay strips/pucks/underlights
+   stay (furniture). Home cameras: Blender x −1.15, web (−1.05, 1.78, 9.65) — logo + all 4
+   bays fully in frame. Wall logo renders via canvas-rasterized SVG (TextureLoader gave
+   0-size). `BA_MAT_ASH_WOOD_DARKGREY` = natural noise-streak grain, web canvas matches.
+   `BAstore.blend` saved; web build + home QA screenshot verified (PNGs deleted, D30).
+   ⚠ Blender crashed once on a Cycles QA thumbnail of the full home state — do NOT run
+   thumbnail/blocking renders on heavy states; review live in viewport only (D14/inv.11).
+   Note: the Vite dev server runs from a Blender-spawned process (dies with Blender);
+   restart with `npm run dev` if the site stops responding.
 
-**Website sync verified:** active nav is four categories only (Wall Art, Digital Art, Layered Art,
-3D ART). Apparel is removed from active navigation. The home environment loads the actual approved
-Blender export at `public/models/ba-gallery-approved.glb` via `GLTFLoader`, with imported geometry,
-labels, display products, shelves, and BA logo. Imported Blender lights are disabled in web; `environment.js`
-overrides the GLB materials/lights toward the approved reference images: warmer cove/spot contrast,
-darker roof/ceiling, richer plaster/floor texture, darker polished floor, black fixtures/products, and a
-code-native warm light rig.
+1. **Render-parity lighting/texture pass done (D37):** all web colors now derived from Blender
+   linear values → sRGB (plaster #c0aa89, bay gray #cecdc9, ash #424242–#6a6a6a, floor #5f4632,
+   warm key #ffddb3, gold emission #ffce90, black wood #302c29, wolf layers #272727→#bcbcbc
+   dark-FRONT like Blender). Render-target drama added: per-fixture wall scallops, recess puck +
+   down-pool per bay, underlight wash, floor glow pools, lower/upper wall shade falloff; global
+   light energy cut to render-target mood. Headless-Chrome QA vs
+   `single-wall-home-front-render-target-web-16x9-v1.png` passes; QA PNGs deleted (D30).
+2. **Digital Art = POSTER (D36):** one black sheet mesh per product, final print file textured on
+   the FRONT FACE only, gold corner pins. No sticker/inset plane anymore.
+3. **3D catalog COMPLETE (D38):** all 15 3D Object products load real STLs. 8 heavy sources
+   decimated to ≤26k tris (≤1.3 MB) via `scripts/optimize_3d_prints.py` (headless Blender,
+   sources untouched) into `public/products/3d/`. Home 3D bay = 2 in-recess shelves with real
+   panther + fidget gear.
+4. **Catalog — 198 products:** 148 Wall Art SVG (expanded 53→148 from the 2D-art library; all
+   extrude clean), 30 Digital posters, 5 Layered SVG stacks, 15 3D Objects.
+5. **Visual-QA fixes DONE (2026-07-04) — verified in Browser at
+   `http://localhost:5173/` (desktop 16:10 + mobile), console clean, zero errors:**
+   (a) Responsive home framing: `homeCameraZ(aspect,fovY)` dollies the home cam back at narrow
+   landscape aspects so the BA logo + all 4 bays fit (16:10 no longer clips); portrait not
+   force-fit (rail handles nav). (b) Category headings auto-fit: long titles scale to the ~0.95u
+   gap so DIGITAL ART / 3D OBJECTS no longer collide with the big bay. (c) Mobile rail = horizontal
+   scroll-snap strip with edge-fade affordance (all 5 categories reachable). (d) Mobile product
+   panel = compact bottom sheet (was covering the top ~60%); product now visible.
+   Files: `src/scene/GalleryScene.js` (a,b) + `src/styles.css` (c,d); `hud.js` untouched.
+6. **UI direction selection boards (2026-07-04):** captured a no-HUD storefront plate from
+   temporary `capture.html` (deleted before finish) and generated five deterministic mockups in
+   `/tmp/ba-ui-options/`: `01-gallery-dock`, `02-boutique-commerce`, `03-curator-sidebar`,
+   `04-command-dock`, `05-editorial-product`, plus `contact-sheet.png`. Follow-up: built-in
+   imagegen direct edit of the exact screenshot was rejected, so five safer generic gallery-wall
+   UI concept images were generated inline for mood/style exploration only, not as exact scene
+   references.
+7. **Gallery Dock view set (2026-07-04):** expanded the first UI style into six desktop mockups in
+   `/tmp/ba-gallery-dock-views/`: `01-home-gallery-dock`, `02-collection-wall-art`,
+   `03-search-overlay`, `04-product-detail-gallery`, `05-shopify-checkout-bridge`,
+   `06-final-shopify-product-page`, plus `contact-sheet.png`. Product-detail boards include the
+   Shopify contract: title/price/description, size/finish variants, quantity, Add to Cart, Buy with
+   Shopify, and WhatsApp order path. Temporary `capture.html` was deleted, the temporary mockup
+   server was stopped, and the Browser was restored to `http://localhost:5173/`.
+8. **Floating UI implemented (2026-07-04):** translated the Gallery Dock direction into the live HUD
+   in `src/ui/hud.js` + `src/styles.css`: top BA/search/bag/reset controls, bottom floating category
+   dock visible across views, Shopify-ready product panel with size/finish options + quantity,
+   Add to Cart, Buy with Shopify, WhatsApp ordering, and a floating bag/checkout bridge. `npm run
+   build` passes; Browser QA passed at desktop 1440×900 and mobile 390×844 with clean console logs.
+   QA screenshots are temporary in `/tmp/ba-floating-ui-qa/`.
+9. **Shelf-front raised text labels (D42, 2026-07-07):** separate web nameplates/placards are
+   superseded. `src/scene/GalleryScene.js` now mounts category/product names as shallow warm-gold
+   TextGeometry extrusions directly on the vertical front face of each bay shelf, auto-split/scaled
+   to fit home, big, grid, and viewer shelves. `npm run build` passes; Browser QA passed for home,
+   Wall Art category, and mobile home with clean console logs. Browser DOM snapshot is currently
+   broken in the Browser runtime, so QA used screenshots + targeted DOM reads instead.
+10. **Layered-art fixes + grid virtualization DONE (2026-07-04, Claude), verified in Browser:**
+    (a) `createLayeredSvgStack` now detects the solid full-canvas backing sheet (fewest path
+    commands) and forces it to the BACK whatever its file index — fixes Motorcycle (its backing
+    sheet sat mid-stack, hiding the detail cuts). (b) Eclipse Mandala now uses the warm-gold mandala
+    palette (id check widened to include "eclipse"). (c) Category product grid is windowed:
+    `updateCategoryGrid()`/`buildGridBay()`/`disposeGridBay()` build only the ~9 columns near the
+    scroll centre and dispose far ones (per-mesh geometry + non-shared materials only; shared
+    singletons + cached textures preserved), called on build/wheel/resize — the 148-product Wall Art
+    grid loads fast + scrolls smoothly, virtualized-in products stay clickable. Wolf/Bear/Mandala
+    unchanged. All in `src/scene/GalleryScene.js`; console clean.
 
-**Browsing flow (re-enabled 2026-06-25 — Claude).** Three modes: `home` → `category` → `product`.
-- `home`: clean static composition. Hovering a category (rail or wall) shows only the gold highlight
-  frame + a gentle camera lean — no more translucent ghost-display double image. Camera nudged up
-  (HOME_CAMERA y1.16 / look y1.06) to centre the display band.
-- `category`: clicking a category opens its **collection** as a floating array staged in front of the
-  **right display wall** (`RIGHT_STAGE_CENTER ~x1.62`); products animate up from near-zero scale
-  (spec §10), camera pans to `RIGHT_STAGE_CAMERA`, home zones/highlights fade out. Filter strip rebuilds
-  the array. `createCollectionStage()` replaced the old wall-anchored `createProductWall()`.
-- `product`: clicking a collection product (or a search result) opens the product viewer on the right
-  wall (`RIGHT_WALL_VIEWER`, unchanged), room stays visible, rotate/layers/light/reset controls work.
-- `back` cycles product → collection → home; rail highlights the active collection.
+## ⏭ Next
 
-**CSS/visual fixes (2026-06-25):** home intro copy was permanently hidden by a base `display:none` rule
-(now shows); home copy + category `.intro` were dark-on-dark (now light/gold for contrast); collection
-panel eyebrow now reads "Collection".
-
-**Home matched to Blender (2026-06-25 — Claude, from LIVE BAstore.blend values).** The web home view now
-replicates `BA_REAL_CAMERA`: GLB import maps Blender→web as `web = (-1.28·Bx, 1.28·Bz, 1.28·By)`, giving
-HOME camera `(0,1.56,9.98)` looking `(0,1.38,0.70)`; camera **horizontal** FOV is locked to the 44mm lens
-(44.5°, computed per-aspect in `applyBlenderFov()`, clamped 24–46°, re-applied on resize). This fixes the
-old too-wide 47° framing that shrank the walls and exposed a huge grey floor + black ceiling band. Floor
-materials now match Blender `BA_MAT_WOOD_FLOOR` (matte warm wood, albedo ~0.28/0.18/0.10, roughness ~0.5,
-near-zero metalness, low env reflection) instead of the chrome-grey mirror; ceiling warmed; floor
-reflection overlay cut to 0.06; fog pushed to 16–34 so the room isn't hazed at the new distance. Category
-hover/click hit-boxes are now anchored to the approved-GLB display positions (same as the gold highlight
-frames) so 3D wall selection lands on the visible art. Right-stage collection/product cameras re-tuned for
-the narrower FOV. Reference target: `docs/review-renders/ba_gallery_framed_v7.png`.
-
-**Verification status:** `node --check` passes on all edited modules. Full `npm run build` + browser
-screenshot QA is PENDING on a non-sandbox machine — this session's Linux sandbox lacks the platform
-rollup/esbuild native binaries and npm registry access, so it cannot bundle or render. Run `npm run dev`
-locally to view; flag anything off about the right-stage camera framing or product spacing for tuning.
-
-**Reference render QA:** Home render now uses approved-GLB object centers for hover/highlight anchors.
-The Layered Art Wolf display is centered on its approved wall/shelf using a synchronous layered image-stack
-fallback from `public/products/layered/wolf.png`; the imported hidden Wolf bounds remain the placement
-anchor while the GLB normalization issue is deferred. Latest QA screenshots for this pass are in `/tmp`
-(`ba-home-fixed.png`, `ba-home-layered-hover.png`) and should be copied into `docs/qa-screenshots/` only
-when Master Khurram wants a retained record. Remaining visual gap vs `docs/inspiration-references/4cat-*.png`:
-Wolf texture cutout still reads as a gray-backed source image rather than premium physical layers, floor
-reflection realism, richer wall/roof/lights/material attraction, and the faint imported-wall horizontal seam.
-
-**Thickness / product contracts in web:** Wall Art SVG extrusions = **5mm**; Digital Art poster/acrylic mesh =
-**3mm**; Layered Art now uses real Blender layer groups exported as GLBs for Bear, Eclipse Mandala,
-Mandala, and Wolf (`public/models/layered/*.glb`). The web viewer normalizes those meshes, enforces
-front-detail → back-layer order with **3mm layer-thickness** metadata, and uses the layer animation control
-on the actual mesh layers instead of repeated PNG planes.
-
-**File hygiene:** master .blend cleaned earlier (278 dead objects + 8 trash collections purged, 123→110MB).
-`Scene` keeps the 8 real product source collections. Pre-cleanup backup: `…/All Multilayer Art.PRE-CLEANUP-backup.blend`.
-
-**Git repo:** local repository is on `main`; `.gitignore` excludes secrets, build output, node_modules,
-heavy source art folders, and raw `.blend` files. Remote GitHub repo still needs to be created/attached
-because no GitHub CLI is installed in this environment.
-
-## ✅ Done earlier
-**Website real products (D23/D26).** `src/data/storefront.js` holds the active real test-set catalog
-(Wall Art ×5, Digital ×5, Layered ×4, 3D ART ×5) with PKR prices and image paths. Real artwork lives in
-`public/products/{wall-art,digital,layered}`. 3D ART remains procedural until approved product GLBs exist.
-
-**Pipeline-test Blender file:** `BA All DATA/All Multilayer Art-3/All Multilayer Art.blend`, scene
-`Scene`, collections `BA_TEST_WALLART` (5 SVG laser-cut), `BA_TEST_DIGITAL` (5 posters), `BA_TEST_3DOBJ`
-(2 real STLs + cube/sphere/cone placeholders), plus 5 native layered products WITH real layer geometry.
-Camera `BA_TEST_CAM`. ✅ Saved.
-
-## ⏳ Awaiting Master Khurram
-1. Review the website (`npm run dev`) and tweak the flow/UI as desired.
-2. **3D ART product GLBs**: web shows procedural dummies; approve/export real Blender objects before wiring.
-
-## ⏭ Next (priority order)
-1. **Visual QA locally** (`npm run dev`) — sandbox can't bundle (mac-only native binaries + no registry).
-   (a) Compare home framing against `docs/review-renders/ba_gallery_framed_v7.png`; if walls clip or float,
-   nudge `HOME_CAMERA`/`BLENDER_HFOV_DEG` in `environment.js`. (b) Confirm the warm matte floor reads right
-   (not grey, not over-glossy). (c) Confirm right-stage collection grid + product-viewer framing; tune
-   `RIGHT_STAGE_*` / `PRODUCT_CAMERA_OFFSET` if products sit too high/low/cramped.
-2. Continue render QA against `docs/inspiration-references/4cat-*.png`: improve roof/lights/material
-   attraction, remove the remaining faint wall seam, and push floor reflections/shadows closer to the reference.
-3. Revisit the Wolf/layered GLB normalization so the real `wolf-layered.glb` can replace the temporary
-   texture-stack fallback cleanly.
-4. Optimize layered product GLBs after visual approval; `mandala-layered.glb` is currently large (~22MB).
-5. Replace procedural 3D ART shapes with approved GLBs (gate, AGENTS.md §2).
-6. Public **Storefront API** token → `.env` for live product data (optional; catalog is static for now).
+1. Master Khurram reviews the live floating UI at `http://localhost:5173/`; if approved, replace
+   placeholder product URLs/options with real Shopify Storefront handles, variant IDs, availability,
+   and checkout URL construction per `ba_spec_v2.md §13`.
+2. Make category-grid horizontal scroll easier than the mouse wheel (drag/arrows); the mobile search
+   input sits above the top edge on narrow viewports (QA find) — anchor it in view.
+3. Optional catalog polish: some of the 95 new Wall Art pieces are alt versions ("cat-1", "Wolf-1",
+   "Geometric Set Variant 2-4") — curate/rename and set real prices/variants as desired.
+4. Wire Shopify Storefront data/checkout only after the visual flow is approved.
+5. Confirm `npm run build` on the mac before deploy (sandbox can't — missing linux rollup binary; JS syntax-checked, dev clean).
 
 ## ⛔ Blocked
-- Real 3D ART product GLBs on the site → blocked until approved in Blender (gate).
-- Master .blend full catalog → heavy STLs crashed Blender; use the lightweight test file for now.
-- Current Codex Blender MCP transport closed after fixing a protocol mismatch. Blender itself is healthy on
-  `127.0.0.1:9876` using Blender 5.1 lab MCP null-delimited `execute` packets; restart/reload the Codex
-  Blender MCP connector so it respawns with the patched wrapper.
 
-## 📂 Catalog
-- `docs/CATALOG.md` = all 37 Shopify collections. Active design now uses 4 nav categories per D26
-  (Wall Art, Digital Art, Layered Art, 3D ART); Apparel catalog data remains but is out of the
-  current visual/navigation design.
+- Live Shopify checkout, Storefront token wiring, deployment, and domain work need explicit approval.
 
 ## 📌 Notes
-- Spec is `ba_spec_v2.md` — link to its sections, don't restate.
-- Blender MCP recovery notes: `docs/MCP_CONNECTION_NOTES.md`.
-- Inspiration direction in `docs/inspiration-references/`: a 3D world with physical products, not flat cards.
-- Locked flow + asset strategy: see CHANGELOG 2026-06-23 (pending a DECISIONS entry).
+
+- Product spec: `ba_spec_v2.md` (historical; STATUS + ARCHITECTURE win on conflict).
+- Catalog data: `docs/CATALOG.md` (37 Shopify collections; 4 active nav categories per D26).
+- Asset gate: `docs/ASSETS.md`. Decimated STLs/poster images are product DATA, not gated assets (AGENTS §2, D38).
+- Blender MCP notes: `docs/MCP_CONNECTION_NOTES.md`. This session: `mcp__Blender__execute_blender_code` works; headless jobs must spawn with `--factory-startup` (default startup crashed on macOS preview job).

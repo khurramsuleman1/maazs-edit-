@@ -1,39 +1,57 @@
 # ASSETS — pipeline & gate status
 
 > Every visual asset is tracked here. Update the row when an asset changes stage.
-> Stages: `TODO → MODELING → RENDERED (awaiting approval) → APPROVED → EXPORTED → IN-SITE`
-> HARD GATE: an asset may only pass `RENDERED → APPROVED` when Master Khurram says so.
-> See AGENTS.md §2.
+> Stages: `MODELING → STAGED (awaiting in-Blender review) → APPROVED → EXPORTED → IN-SITE`
+> HARD GATE: only Master Khurram moves an asset to `APPROVED` (AGENTS.md §2, D04/D14).
+> Geometry reference for everything below: `docs/ARCHITECTURE.md`.
 
-## Environment (one main GLB — ba_spec_v2 §12)
-| Asset | Stage | Render | .blend | GLB | Notes |
-|---|---|---|---|---|---|
-| BA_GALLERY storefront environment | IN-SITE | `docs/review-renders/ba_gallery_framed_v7.png` | `BAstore.blend` scene `BA_GALLERY`, collection `BA_REAL_SCALE_LAYOUT` | `public/models/ba-gallery-approved.glb` | Approved by Master Khurram on 2026-06-24, exported from Blender, and loaded as the website home environment. Website uses the Blender geometry, but disables imported Blender lights and applies reference-driven web materials/lighting. |
-| Concrete back wall | TODO | — | — | — | form-lines, aggregate texture |
-| Floor (polished concrete) | TODO | — | — | — | faint reflection |
-| BA logo engraving | TODO | — | — | — | recessed geometry, not texture |
-| Tagline engraving | TODO | — | — | — | "Where beauty is etched into art" |
-| Spotlight rigs | TODO | — | — | — | 2–3 key lights |
-| Category plinths ×4 | TODO | — | — | — | one per category |
-| Dust particle system | TODO | — | — | — | subtle, in light beams |
+## Gallery construct — `BAstore.blend` scene `BA_SINGLE_WALL_HOME`
 
-## Category hero objects — FIRST BUILD (4 GLBs, one per active nav category. D26)
-| Asset | Stage | Render | .blend | GLB | Notes |
-|---|---|---|---|---|---|
-| Wall Art — laser-cut piece | TODO | — | master .blend ✓ | — | meshes already exist (extruded SVG); pick one as hero (D09) |
-| Digital Art — poster panel | TODO | — | — | — | flat panel, artwork texture on one side (D10) |
-| Layered Art — depth panel | TODO | — | — | — | true layered meshes |
-| 3D ART — print model | TODO | — | — | — | from `BA All DATA/3D Print Models/` (D08); not wired until approved/exported. |
+| Asset | Stage | Where | GLB | Notes |
+|---|---|---|---|---|
+| Shared architecture (wall/header/cove/rail/fixtures/floor) | APPROVED | collection `BA_SW_REAL_RATIO_REBUILD` | not exported; code-native runtime | Master Khurram approved exports 2026-07-03 in Codex chat. Current web recreates the approved single-wall construct in Three.js. |
+| HOME state (4 category bays + real products + real logo) | APPROVED / IN-SITE | `BA_SW_RR_HOME_BAYS` + `BA_SW_REAL_PRODUCTS` + `BA_SW_REAL_LOGO` | not exported; code-native runtime | Wall labels above bays removed; shelf nameplates remain. Real product sources are represented in the web runtime. |
+| SCROLLER state (description column + big bay + 2×10 grid) | APPROVED / IN-SITE | `BA_SW_SCROLLER_PAGE` | not exported; code-native runtime | Category copy is physical extruded wall text; product UI boxes are viewer-only. |
+| VIEWER state | web IN-SITE; Blender parity TODO | (design in ARCHITECTURE §6) | — | Web uses one centered product bay with viewer-only UI. Build `BA_SW_VIEWER_PAGE` only if Blender parity is needed. |
 
-## Products (per-product GLBs)
-| Asset | Stage | Render | .blend | GLB | Notes |
-|---|---|---|---|---|---|
-| Wall Art web SVG products | IN-SITE | — | — | — | Public SVGs are converted in-browser to 5mm extruded meshes. |
-| Digital Art web poster products | IN-SITE | — | — | — | Public images are mapped onto single 3mm glossy acrylic/poster meshes. |
-| Layered Art web products | IN-SITE | — | `BAstore.blend` (`BA_REAL_WOLF_L*`, `BA_LAYERED_BEAR_L*`, `BA_LAYERED_MANDALA_L*`, `BA_LAYERED_ECLIPSE_L*`) | `public/models/layered/{wolf-layered,bear-layered,mandala-layered,eclipse-mandala}.glb` | Real Blender layer mesh groups exported and loaded in web for category thumbnails + product viewer; web enforces front-detail → back-layer order and 3mm layer-thickness metadata. |
+## Product library — `BAstore.blend` scene `BA_PRODUCTS`
+
+| Collection | Contents | Stage |
+|---|---|---|
+| `BA_WALLART_ARRAY` + source SVG folders | Athena, Astronaut, Lion, Wolf, Elephant plus expanded wall-art source set | IN-SITE via 53 `public/products/wall-art/*.svg` runtime extrusions |
+| `BA_PROD_HERO` + 3D print source folders | Horse-head, 2×3 ft Ironman acrylic, Wolf L1–L4, panther STL, fidget-axis STL, plus small STL product data copied for web viewing | IN-SITE for small STL product data; optimized 3D object GLBs still pending |
+| `BA_LAYERED_ARRAY` + native layered collections | Bear, Mandala, Eclipse-Mandala, Wolf, Motorcycle layer stacks | IN-SITE via exported SVG cut layers in `public/products/layered/svg/` |
+| `BA_TEST_DIGITAL` + final-print source folder | 5 real poster panels plus expanded final-print product set | IN-SITE via 30 final-print derivatives in `public/products/digital/final/` |
+
+### Layered SVG exports — approved 2026-07-03
+
+Generated by `scripts/export_layered_svg_layers.py` from Blender layer objects:
+
+- `public/products/layered/svg/wolf/layer-01.svg` → `layer-04.svg` (front-detail order; web reverses depth so layer 04 is backing).
+- `public/products/layered/svg/bear/layer-01.svg` → `layer-06.svg`.
+- `public/products/layered/svg/mandala/layer-01.svg` → `layer-06.svg`.
+- `public/products/layered/svg/eclipse-mandala/layer-01.svg` → `layer-06.svg` (front-detail order; web reverses depth so layer 06 is backing).
+- `public/products/layered/svg/motorcycle/layer-01.svg` → `layer-05.svg`.
+
+Raw GLB exports also exist in `public/models/layered/`, but the website now uses SVG cut layers
+as the lighter and more controllable source contract for layered wall art.
+
+### 3D product data copied into web runtime — 2026-07-03
+
+These are existing product source files, not new authored GLB assets. Small STL files load as real
+viewer meshes; large figure/lamp STLs remain procedural stand-ins until optimized/approved.
+
+- `public/products/3d/panther.stl`
+- `public/products/3d/fidget-central-gear.stl`
+- `public/products/3d/batarang-6mm.stl`
+- `public/products/3d/batman-bookmark.stl`
+- `public/products/3d/picture-frame-corner-2mm.stl`
+- `public/products/3d/picture-frame-corner-3mm.stl`
+- `public/products/3d/flexi-cat.stl`
 
 ## Source material on hand (not yet processed)
-- `2D Art All SVG/` — 148 SVGs (wall art / digital art candidates)
-- `BA All DATA/` — 2D Art, 2D Art All SVG, 3D Print Models, Poster prints
-- `black_aesthetics_..._3d_meshes.blend` — master Blender file (existing meshes)
-- `LOGO Blackaesthetics.svg` — brand logo
+- `2D Art All SVG/` — 148 SVGs (wall/digital art candidates)
+- `BA All DATA/` — 2D art, SVGs, 3D print models, poster prints
+- `LOGO Blackaesthetics.svg` — brand logo (D21: use as-is) — physical mark already in scene
+- `public/products/` — real product images/vectors/STLs for the web catalog (current runtime subset:
+  53 wall-art SVGs, 30 digital final prints, 27 layered SVG cut files, 7 STL files)

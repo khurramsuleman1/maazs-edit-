@@ -1,33 +1,83 @@
-// Black Aesthetics — entry point.
-// Boots the renderer, scene, and scroll controller, then reveals the world.
-// Read AGENTS.md before extending this. Full behavior spec: ba_spec_v2.md.
-//
-// This is a skeleton: wire real implementations into the modules under src/.
-// Keep main.js thin — it orchestrates, it does not contain scene detail.
+import "./styles.css";
+import { categories, getCategory, getHeroProduct, getProduct } from "./data/catalog.js";
+import { GalleryScene } from "./scene/GalleryScene.js";
+import { createHud } from "./ui/hud.js";
 
-import { createScene } from './scene/environment.js';
-import { mountHud } from './ui/hud.js';
+const canvas = document.querySelector("#gallery-canvas");
+const hudRoot = document.querySelector("#hud-root");
 
-const canvas = document.getElementById('app');
+const initialCategory = categories[0];
+const appState = {
+  mode: "home",
+  activeCategoryId: initialCategory.id,
+  activeProductId: getHeroProduct(initialCategory).id,
+};
 
-async function boot() {
-  // 1. Build the small-room storefront and product viewer.
-  const world = await createScene(canvas);
+const gallery = new GalleryScene({
+  canvas,
+  categories,
+  onCategorySelect: (categoryId) => openCategory(categoryId),
+  onProductSelect: (productId) => selectProduct(productId, { openViewer: false }),
+  onProductOpen: (productId) => selectProduct(productId, { openViewer: true }),
+});
 
-  // 2. Layer the minimal luxury storefront UI over the 3D room.
-  mountHud(world);
+const hud = createHud({
+  root: hudRoot,
+  categories,
+  onHome: showHome,
+  onCategory: openCategory,
+  onProduct: (productId, options = {}) => selectProduct(productId, { openViewer: options.openViewer ?? appState.mode === "viewer" }),
+  onViewer: () => openViewer(appState.activeProductId),
+  onStepProduct: stepProduct,
+});
 
-  // 3. Asset-ready cut: hide splash, reveal world (§4 — a cut, not a fade).
-  const splash = document.getElementById('splash');
-  if (splash) splash.style.display = 'none';
-
-  // 4. Render loop.
-  const tick = () => {
-    world.update();
-    world.renderer.render(world.scene, world.camera);
-    requestAnimationFrame(tick);
-  };
-  tick();
+function sync() {
+  gallery.setState(appState);
+  hud.update(appState);
 }
 
-boot().catch((err) => console.error('[BA] boot failed:', err));
+function showHome() {
+  appState.mode = "home";
+  sync();
+}
+
+function openCategory(categoryId) {
+  const category = getCategory(categoryId);
+  appState.mode = "category";
+  appState.activeCategoryId = category.id;
+  appState.activeProductId = getHeroProduct(category).id;
+  sync();
+}
+
+function selectProduct(productId, { openViewer }) {
+  const { product, category } = getProduct(productId);
+  appState.mode = openViewer ? "viewer" : appState.mode === "home" ? "category" : appState.mode;
+  appState.activeCategoryId = category.id;
+  appState.activeProductId = product.id;
+  sync();
+}
+
+function openViewer(productId) {
+  const { product, category } = getProduct(productId);
+  appState.mode = "viewer";
+  appState.activeCategoryId = category.id;
+  appState.activeProductId = product.id;
+  sync();
+}
+
+function stepProduct(direction) {
+  const category = getCategory(appState.activeCategoryId);
+  const index = category.products.findIndex((product) => product.id === appState.activeProductId);
+  const nextIndex = (index + direction + category.products.length) % category.products.length;
+  appState.activeProductId = category.products[nextIndex].id;
+  sync();
+}
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") showHome();
+  if (event.key === "ArrowLeft") stepProduct(-1);
+  if (event.key === "ArrowRight") stepProduct(1);
+  if (event.key === "Enter" && appState.mode !== "viewer") openViewer(appState.activeProductId);
+});
+
+sync();
