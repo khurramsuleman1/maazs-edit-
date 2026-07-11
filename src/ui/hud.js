@@ -1,8 +1,8 @@
-import { getProduct } from "../data/catalog.js";
+import { getCategory, getProduct, getSubcollection } from "../data/catalog.js";
 
 const SHOPIFY_PRODUCT_BASE = "https://blackaestheticspk.com/products";
 
-export function createHud({ root, categories, onHome, onCategory, onProduct, onStepProduct }) {
+export function createHud({ root, categories, onHome, onCategory, onProduct, onStepProduct, onCategoryScroll }) {
   root.innerHTML = `
     <header class="hud-top">
       <button class="brand" type="button" data-action="home" aria-label="Return home">
@@ -24,6 +24,20 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
     </section>
 
     <nav class="category-rail" aria-label="Store categories"></nav>
+
+    <div class="category-scroll-controls" data-panel="category-scroll" hidden>
+      <button type="button" data-action="category-scroll-prev" aria-label="Scroll collection left">
+        <span class="scroll-arrow is-left" aria-hidden="true"></span>
+      </button>
+      <button type="button" data-action="category-scroll-next" aria-label="Scroll collection right">
+        <span class="scroll-arrow is-right" aria-hidden="true"></span>
+      </button>
+    </div>
+
+    <div class="collection-context" data-panel="collection-context" hidden>
+      <span></span>
+      <button type="button" data-action="category">All niches</button>
+    </div>
 
     <aside class="product-panel" data-panel="product" hidden>
       <button class="text-link" type="button" data-action="category">Back to Collection</button>
@@ -92,6 +106,8 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
   const productPanel = root.querySelector('[data-panel="product"]');
   const checkoutPanel = root.querySelector('[data-panel="checkout"]');
   const viewerControls = root.querySelector('[data-panel="viewer"]');
+  const categoryScrollControls = root.querySelector('[data-panel="category-scroll"]');
+  const collectionContext = root.querySelector('[data-panel="collection-context"]');
   const searchPanel = root.querySelector('[data-panel="search"]');
   const searchInput = root.querySelector('input[type="search"]');
   const searchResults = root.querySelector(".search-results");
@@ -147,6 +163,8 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
     }
     if (action === "prev") onStepProduct(-1);
     if (action === "next") onStepProduct(1);
+    if (action === "category-scroll-prev") onCategoryScroll?.(-1);
+    if (action === "category-scroll-next") onCategoryScroll?.(1);
     if (action === "decrement") {
       quantity = Math.max(1, quantity - 1);
       render(lastState);
@@ -188,6 +206,11 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
     homePanel.hidden = state.mode !== "home";
     productPanel.hidden = state.mode !== "viewer" || !checkoutPanel.hidden;
     viewerControls.hidden = state.mode !== "viewer";
+    categoryScrollControls.hidden = state.mode !== "category";
+    const activeCategory = getCategory(state.activeCategoryId);
+    const subcollection = getSubcollection(activeCategory, state.activeSubcollectionId);
+    collectionContext.hidden = state.mode !== "category" || !subcollection;
+    if (subcollection) collectionContext.querySelector("span").textContent = subcollection.label;
 
     renderProductPanel(product, category);
     renderCheckout(state);

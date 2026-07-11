@@ -210,6 +210,131 @@ const digitalProducts = [
   price: "PKR 2,500",
 }));
 
+const byKeywords = (products, keywords) => {
+  const terms = keywords.map((keyword) => keyword.toLowerCase());
+  return products.filter((product) => {
+    const haystack = `${product.id} ${product.name}`.toLowerCase();
+    return terms.some((term) => haystack.includes(term));
+  });
+};
+
+const buildSubcollections = (products, definitions) =>
+  definitions
+    .map((definition) => {
+      const matched = byKeywords(products, definition.keywords);
+      const productIds = [...new Set(matched.map((product) => product.id))];
+      return {
+        ...definition,
+        productIds,
+        coverProductId: definition.coverProductId ?? productIds[0],
+      };
+    })
+    .filter((definition) => definition.productIds.length > 0);
+
+const wallArtSubcollections = buildSubcollections(wallArtProducts, [
+  {
+    id: "animals",
+    label: "Animals",
+    handle: "animal-2d-wall-art",
+    description: "Wildlife, pets, birds, and nature-led silhouettes.",
+    keywords: ["horse", "wolf", "elephant", "cat", "bee", "bull", "butterfly", "deer", "dolphin", "eagle", "fox", "owl", "pandas", "rabbit", "seahorses", "shark", "spider", "tiger"],
+  },
+  {
+    id: "anime-manga",
+    label: "Anime / Manga",
+    handle: "anime-manga-2d-1",
+    description: "Anime, manga, and gaming-inspired cut art.",
+    keywords: ["gojo", "kakashi", "jojo", "goku", "dragon ball", "league of legends", "ninja", "venom"],
+  },
+  {
+    id: "comics-superheroes",
+    label: "Comics & Heroes",
+    handle: "comics-superheroes-2d",
+    description: "Superheroes, comic icons, and cinematic character pieces.",
+    keywords: ["batman", "joker", "jocker", "boba fett", "spiderman", "marvel", "stormtrooper", "baby groot", "venom"],
+  },
+  {
+    id: "minimalistic",
+    label: "Minimalistic",
+    handle: "minimalistic",
+    description: "Clean forms, abstract geometry, and modern wall silhouettes.",
+    keywords: ["abstract", "geometric", "circle", "flower", "heart", "leaf", "lines", "love", "mode", "decor", "ripples", "lightning", "globe"],
+  },
+  {
+    id: "personalities",
+    label: "Personalities",
+    handle: "personalities",
+    description: "Musicians, athletes, actors, and cultural personalities.",
+    keywords: ["amy", "audrey", "bob marley", "marilyn", "ronaldo", "messi", "lady diana", "notorious", "tupac", "juice", "aristoteles", "david"],
+  },
+  {
+    id: "movies-pop",
+    label: "Movies & Pop",
+    handle: "movies",
+    description: "Film, fantasy, and pop-culture wall pieces.",
+    keywords: ["pulp", "gandalf", "khaleesi", "leon", "mathilda", "marla", "totoro", "cowboy", "stormtrooper"],
+  },
+  {
+    id: "cars",
+    label: "Cars",
+    handle: "cars",
+    description: "Automotive silhouettes and garage wall pieces.",
+    keywords: ["mk4", "toyota", "nissan"],
+  },
+  {
+    id: "cultural",
+    label: "Cultural Arts",
+    handle: "cultural-arts-2d",
+    description: "Heritage, myth, classical, and ornamental designs.",
+    keywords: ["africans", "ethnic", "indigenous", "tribal", "themis", "poseidon", "atlas", "hamsa", "creation", "michelangelo", "mantra"],
+  },
+]);
+
+const digitalSubcollections = buildSubcollections(digitalProducts, [
+  {
+    id: "anime-naruto",
+    label: "Anime / Naruto",
+    handle: "anime",
+    description: "Naruto, Demon Slayer, and anime poster prints.",
+    keywords: ["naruto", "rengoku", "itachi", "pain", "minato", "madara", "obito"],
+  },
+  {
+    id: "comics-movies",
+    label: "Comics & Movies",
+    handle: "comics-superheroes-movies-digital-ae",
+    description: "Hero, villain, and cinematic poster artwork.",
+    keywords: ["ironman", "joker", "panther"],
+  },
+  {
+    id: "stained-classical",
+    label: "Stained / Classical",
+    handle: "stained-glass-style",
+    description: "Stained glass, architecture, and classical mood prints.",
+    keywords: ["stained", "colosseum", "lighthouse", "piano", "lady"],
+  },
+  {
+    id: "cultural-digital",
+    label: "Cultural Arts",
+    handle: "cultural-arts-digital",
+    description: "Cultural and expressive art prints.",
+    keywords: ["whirling", "shaan"],
+  },
+  {
+    id: "cars-sports",
+    label: "Cars & Sports",
+    handle: "cars",
+    description: "Automotive and sports poster prints.",
+    keywords: ["ferrari", "ronaldo"],
+  },
+  {
+    id: "neon-ladies",
+    label: "Smoking Lady",
+    handle: "smoking-lady",
+    description: "Neon, smoke, and dramatic portrait prints.",
+    keywords: ["smoking", "neon", "scarlet", "electric"],
+  },
+]);
+
 export const categories = [
   {
     id: "wall-art",
@@ -219,6 +344,7 @@ export const categories = [
     handle: "2d-wallart",
     description: "Thick laser-cut sheet silhouettes mounted into lit gallery recesses, with black forms standing proud from the pale bay wall.",
     heroProductId: "wall-elegant-horse-head",
+    subcollections: wallArtSubcollections,
     products: wallArtProducts,
   },
   {
@@ -229,6 +355,7 @@ export const categories = [
     handle: "poster-art",
     description: "Poster prints — each final print file is the front-face texture of a black sheet panel, hung with gold corner pins like a real mounted poster.",
     heroProductId: "digital-ironman",
+    subcollections: digitalSubcollections,
     products: digitalProducts,
   },
   {
@@ -488,4 +615,22 @@ export function getProduct(productId) {
 
 export function getHeroProduct(category) {
   return category.products.find((product) => product.id === category.heroProductId) ?? category.products[0];
+}
+
+export function getSubcollection(category, subcollectionId) {
+  return category.subcollections?.find((subcollection) => subcollection.id === subcollectionId) ?? null;
+}
+
+export function getSubcollectionProducts(category, subcollectionId) {
+  const subcollection = getSubcollection(category, subcollectionId);
+  if (!subcollection) return category.products;
+  const productById = new Map(category.products.map((product) => [product.id, product]));
+  return subcollection.productIds.map((productId) => productById.get(productId)).filter(Boolean);
+}
+
+export function getSubcollectionHeroProduct(category, subcollectionId) {
+  const subcollection = getSubcollection(category, subcollectionId);
+  if (!subcollection) return getHeroProduct(category);
+  const products = getSubcollectionProducts(category, subcollection.id);
+  return products.find((product) => product.id === subcollection.coverProductId) ?? products[0] ?? getHeroProduct(category);
 }

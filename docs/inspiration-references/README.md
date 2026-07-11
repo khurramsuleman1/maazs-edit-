@@ -3,9 +3,20 @@
 Preview-only visual references for the Black Aesthetics 3D storefront.
 These do not bypass the Blender approval gate.
 
-## Active Direction — D27/D28
+## Active Home Direction — D47 (IMPORTANT)
 
-- `single-wall-home-front-render-target-web-16x9-v1.png` — **primary Blender render-match target** for the home page.
+- `home-view-revision-bayless-v1.png` — **approved visual target for the next HOME revision**.
+- Home only becomes a bayless living product wall: four product-type zones defined by product
+  composition, scale, and depth rather than frames.
+- Hover lifts/enlarges the complete product zone and highlights its matching bottom-nav category.
+- Category, subcollection, and product states retain the current bay architecture.
+- Match the reference's warm plaster, balanced logo-side illumination, dark sculptural products,
+  rich poster blacks, and controlled gold highlights. Avoid washed-out digital prints.
+- Blender staging and live viewport approval are still required before the web Home is replaced.
+
+## Previous Direction — D27/D28
+
+- `single-wall-home-front-render-target-web-16x9-v1.png` — previous bay-based home render-match target; still useful for shared room proportions.
 - `single-wall-same-view-web-16x9-v1.png` — desktop reference for the one-wall system.
 - `single-wall-same-view-mobile-9x16-v1.png` — mobile reference for the same one-wall system.
 

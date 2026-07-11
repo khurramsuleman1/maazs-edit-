@@ -3,7 +3,7 @@
 > Source of truth. Always current. Read first, update before finishing.
 > Keep it short — finished work moves to CHANGELOG, not here.
 
-**Last updated:** 2026-07-11 by Codex (next-step review)
+**Last updated:** 2026-07-12 by Codex (D47 bayless Home revision locked)
 **Phase:** Vite/Three.js single-wall runtime live at `http://localhost:5173/`; `BAstore.blend` remains the source of truth for geometry, materials, lighting intent, and exported layer vectors.
 **Shopify:** ✅ Admin connected via MCP — Black Aesthetics, PKR, Basic plan.
 **Operating mode:** Single operator. `docs/STATUS.md` carries the current session state.
@@ -17,6 +17,16 @@
 - **AGENTS.md §6 "Blender→web AESTHETIC PARITY"** — how the site must look (D36/D37/D38).
 
 ## ▶ Now
+
+- **D47 HOME REVISION — IMPORTANT:** saved the approved reference as
+  `docs/inspiration-references/home-view-revision-bayless-v1.png` (SHA-256
+  `b3859271f289cdbb08b484c7b8bde60b092dea77512638bcd44277eefe4323df`). Home only will become
+  four bayless product zones; hovering a zone lifts/enlarges the whole group and highlights its
+  matching bottom-nav item. Category/subcollection/viewer bays remain unchanged. Required look:
+  warm textured plaster, balanced light on the logo side, rich dark digital prints, and readable
+  black sculpture highlights. Blender collection `BA_HOME_D47_STAGED` is now **STAGED — awaiting
+  in-Blender review**, framed through `BA_D47_HOME_REVIEW_CAMERA`; web Home remains unchanged until
+  Master Khurram says "approved".
 
 0. **FULLY LIT ROOM (D41, 2026-07-03, BOTH Blender + web):** ZERO spotlights — all SPOT
    lights (track/product/big-bay) and fixture meshes deleted in Blender; all aimed spots +
@@ -91,18 +101,66 @@
     singletons + cached textures preserved), called on build/wheel/resize — the 148-product Wall Art
     grid loads fast + scrolls smoothly, virtualized-in products stay clickable. Wolf/Bear/Mandala
     unchanged. All in `src/scene/GalleryScene.js`; console clean.
+11. **Category scroll + mobile search polish DONE (2026-07-11):** collection mode now has explicit
+    left/right arrow controls, drag-to-scroll on the 3D canvas, and ArrowLeft/ArrowRight keyboard
+    scrolling; wheel scrolling uses the same clamp/camera/grid update path. Mobile search is clamped
+    between the top controls and bottom dock so the input stays inside the viewport. `npm run build`
+    passes. Headless Playwright confirmed the app/HUD load; full category interaction scripts timed
+    out while waiting on heavy category asset work, so final visual feel should be reviewed live.
+12. **Subcollection-first browsing DONE (D43, 2026-07-11):** Wall Art now opens through 8 niche
+    bays (Animals, Anime/Manga, Comics & Heroes, Minimalistic, Personalities, Movies & Pop, Cars,
+    Cultural Arts) and Digital Art opens through 6 niche bays (Anime/Naruto, Comics & Movies,
+    Stained/Classical, Cultural Arts, Cars & Sports, Smoking Lady). Selecting a niche swaps the
+    moving shelf to only that niche's products, keeping object count low. The hero bay stays fixed;
+    the product/niche track moves left under drag/wheel/arrows/keyboard and virtualizes/disappears
+    at the hero-bay boundary. Hovered track bays detach/enlarge with an additive warm focus pool
+    (no real spotlights, preserving D41). `npm run build` passes; headless smoke saw controls
+    visible and no console errors, but synthetic niche clicking was not visually reliable in
+    headless, so live Browser review is still needed.
+13. **Array edge-mask polish DONE (2026-07-11):** moving shelf bays remain full-size at the initial
+    first column, begin shrinking only after scrolling toward the hero bay's right wall, become
+    non-interactive while tiny, disappear before collision, and grow back as they re-enter from
+    either edge. Hover enlargement/lift now affects only the product display inside the bay, not
+    the bay frame. This keeps the hero bay visually clean while preserving drag/wheel/arrow scrolling.
+14. **Live Shopify product alignment task created:** no per-product live Shopify mapping/export was
+    found in the workspace beyond `docs/CATALOG.md` collection structure. Added
+    `docs/SHOPIFY_PRODUCT_ALIGNMENT_TASK.md` for Claude/Shopify MCP to generate
+    `docs/SHOPIFY_PRODUCT_ALIGNMENT.json` with collection order, product handles, variant IDs,
+    local asset matches, and unmatched lists before launch checkout wiring.
+15. **Product-only state transitions DONE (D44-D46, 2026-07-11):** bay frames no longer travel or
+    deform. The selected product detaches from its old recess, outgoing bays retreat in place, an
+    empty destination bay spawns, and the same uniformly scaled product lands inside before the
+    destination copy takes over. Camera movement starts after landing; arrays stagger in; viewer
+    commerce UI waits for the scene. Real elapsed time drives the sequence, so heavy SVG/STL loads
+    cannot freeze it or show a stale product beneath a new bay label.
+16. **Full view QA DONE (2026-07-11):** Browser checked desktop 1440x900 and mobile 390x844 across
+    Home, Wall Art/Digital niche arrays, selected Animals products, Layered direct products, 3D
+    direct products, product viewer, and angled/frontal drag states. Desktop angled camera now keeps
+    the left heading; desktop frontal shows the complete hero plus all eight Wall Art niches with no
+    dead left void; mobile frontal intentionally prioritizes a dense array. Small procedural 3D
+    previews preserve a reduced base scale through hover for jamb clearance. All checked states had
+    zero console errors.
 
 ## ⏭ Next
 
-1. Master Khurram reviews the live floating UI at `http://localhost:5173/`; if approved, replace
+1. Master Khurram reviews `BA_HOME_D47_STAGED` live in Blender through
+   `BA_D47_HOME_REVIEW_CAMERA` and either requests changes or says "approved".
+2. **Only after approval:** implement four zone hit groups, zone-only hover lift/enlarge, and
+   synchronized bottom-nav highlighting; keep all non-Home bay views unchanged.
+3. Rebalance web Home lighting/texture parity to D47: brighter logo side, richer plaster grain,
+   controlled highlights, and digital poster texture/color-space corrections.
+4. Master Khurram reviews the current live prefab transitions and subcollection/niche browsing flow at `http://localhost:5173/`;
+   if approved, replace
    placeholder product URLs/options with real Shopify Storefront handles, variant IDs, availability,
    and checkout URL construction per `ba_spec_v2.md §13`.
-2. Make category-grid horizontal scroll easier than the mouse wheel (drag/arrows); the mobile search
-   input sits above the top edge on narrow viewports (QA find) — anchor it in view.
-3. Optional catalog polish: some of the 95 new Wall Art pieces are alt versions ("cat-1", "Wolf-1",
+5. Optional catalog polish: some of the 95 new Wall Art pieces are alt versions ("cat-1", "Wolf-1",
    "Geometric Set Variant 2-4") — curate/rename and set real prices/variants as desired.
-4. Wire Shopify Storefront data/checkout only after the visual flow is approved.
-5. Confirm `npm run build` on the mac before deploy (sandbox can't — missing linux rollup binary; JS syntax-checked, dev clean).
+6. Claude/Shopify MCP should generate `docs/SHOPIFY_PRODUCT_ALIGNMENT.json` from live Shopify using
+   `docs/SHOPIFY_PRODUCT_ALIGNMENT_TASK.md`; then Codex can align local products/subcollections to
+   live collection names, sort order, handles, prices, variants, and checkout IDs.
+7. Wire Shopify Storefront data/checkout only after the visual flow is approved and the alignment
+   file exists.
+8. Confirm `npm run build` on the mac before deploy; latest local build passes.
 
 ## ⛔ Blocked
 

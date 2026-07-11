@@ -11,6 +11,7 @@
 |---|---|---|---|---|
 | Shared architecture (wall/header/cove/rail/fixtures/floor) | APPROVED | collection `BA_SW_REAL_RATIO_REBUILD` | not exported; code-native runtime | Master Khurram approved exports 2026-07-03 in Codex chat. Current web recreates the approved single-wall construct in Three.js. |
 | HOME state (4 category bays + real products + real logo) | APPROVED / IN-SITE | `BA_SW_RR_HOME_BAYS` + `BA_SW_REAL_PRODUCTS` + `BA_SW_REAL_LOGO` | not exported; code-native runtime | Wall labels above bays removed; shelf nameplates remain. Real product sources are represented in the web runtime. |
+| **D47 HOME revision — bayless product zones** | **STAGED — awaiting in-Blender review** | collection `BA_HOME_D47_STAGED`; camera `BA_D47_HOME_REVIEW_CAMERA` | — | IMPORTANT target: `docs/inspiration-references/home-view-revision-bayless-v1.png`. Uses evaluated copies of approved product geometry; old Home bays are hidden for review only. Category/scroller/viewer bays are preserved. Do not wire into web until Master Khurram says "approved". |
 | SCROLLER state (description column + big bay + 2×10 grid) | APPROVED / IN-SITE | `BA_SW_SCROLLER_PAGE` | not exported; code-native runtime | Category copy is physical extruded wall text; product UI boxes are viewer-only. |
 | VIEWER state | web IN-SITE; Blender parity TODO | (design in ARCHITECTURE §6) | — | Web uses one centered product bay with viewer-only UI. Build `BA_SW_VIEWER_PAGE` only if Blender parity is needed. |
 
