@@ -1,3 +1,5 @@
+import { COMMERCE } from "./shopifyVariants.js";
+
 const slug = (value) =>
   value
     .toLowerCase()
@@ -422,7 +424,7 @@ export const categories = [
     shortLabel: "3D",
     collection: "3D Prints",
     handle: "3d-prints",
-    description: "Real print products from the source folders, shown as sculptural web stand-ins until product GLBs are approved.",
+    description: "Real 3D-print products — each piece is its actual decimated print model, displayed on floating gallery shelves.",
     heroProductId: "object-panther",
     products: [
       {
@@ -597,6 +599,19 @@ export const categories = [
     ],
   },
 ];
+
+// Matched products carry their REAL live-Shopify starting price ("from" = cheapest variant)
+// so search results and list surfaces agree with the store. Panel prices are computed per
+// selection in hud.js from the same COMMERCE data.
+for (const category of categories) {
+  for (const product of category.products) {
+    const commerce = COMMERCE[product.id];
+    if (!commerce?.variants?.length) continue;
+    const min = Math.min(...commerce.variants.map((variant) => variant.price));
+    product.price = `PKR ${Math.round(min).toLocaleString("en-US")}`;
+    product.shopifyHandle = commerce.handle;
+  }
+}
 
 export function getCategory(categoryId) {
   return categories.find((category) => category.id === categoryId) ?? categories[0];

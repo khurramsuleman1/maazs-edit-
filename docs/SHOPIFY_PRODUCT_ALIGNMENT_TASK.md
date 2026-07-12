@@ -1,6 +1,7 @@
 # SHOPIFY_PRODUCT_ALIGNMENT_TASK
 
-> Launch-critical task for Claude / Shopify MCP.
+> Historical launch-critical task for Claude / Shopify MCP.
+> Completed on 2026-07-12; kept here as the regeneration contract.
 
 ## Goal
 
@@ -10,19 +11,22 @@ prices, variants, collection membership, and product ordering without modeling e
 
 ## Current state
 
-- `docs/CATALOG.md` has the Shopify collection list pulled on 2026-06-22.
-- No per-product live Shopify export/mapping file was found in the workspace.
+- `docs/SHOPIFY_PRODUCT_ALIGNMENT.json` exists and was generated from Shopify Admin MCP on 2026-07-12.
+- `docs/BA_PRODUCT_LOG.xlsx` exists with Summary / Shopify Live Products / 3D Website Products /
+  Collections / Unmatched sheets.
+- `src/data/shopifyVariants.js` mirrors exact live variant options, prices, handles, and GIDs for
+  matched local products.
 - `src/data/catalog.js` currently uses curated local products from:
   - `public/products/wall-art/`
   - `public/products/digital/final/`
   - `public/products/layered/svg/`
   - `public/products/3d/`
-- Wall Art and Digital Art now browse through local subcollections, but membership is keyword
-  based until live Shopify product data is mapped.
+- Wall Art and Digital Art browse through curated local subcollections; product handles/prices for
+  matched products now come from live Shopify data.
 
 ## Required output file
 
-Create `docs/SHOPIFY_PRODUCT_ALIGNMENT.json` with this shape:
+When regenerating, create `docs/SHOPIFY_PRODUCT_ALIGNMENT.json` with this shape:
 
 ```json
 {
@@ -63,11 +67,12 @@ Create `docs/SHOPIFY_PRODUCT_ALIGNMENT.json` with this shape:
 5. Put live products with no local asset in `unmatched_shopify_products`.
 6. Put local assets/products not found in Shopify in `unmatched_local_products`.
 
-## After file exists
+## After regeneration
 
-Codex should update `src/data/catalog.js` to consume or mirror this alignment so:
+Codex should keep `src/data/catalog.js` and `src/data/shopifyVariants.js` aligned so:
 
 - Subcollection names/handles match Shopify collections.
 - Product order follows Shopify.
 - Product handles and variant IDs are available for checkout wiring.
-- Placeholder keyword membership can be removed.
+- Site-side Thickness/Material options follow D53 until Master Khurram approves pushing those
+  options into Shopify.

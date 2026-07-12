@@ -8,11 +8,19 @@ const hudRoot = document.querySelector("#hud-root");
 
 const initialCategory = categories[0];
 const appState = {
-  mode: "home",
+  mode: "intro",
   activeCategoryId: initialCategory.id,
   activeSubcollectionId: null,
   activeProductId: getHeroProduct(initialCategory).id,
 };
+
+let hud = null;
+let interactionLocked = false;
+
+function setInteractionLocked(locked) {
+  interactionLocked = locked;
+  hud?.setInteractionLocked(locked);
+}
 
 const gallery = new GalleryScene({
   canvas,
@@ -21,17 +29,21 @@ const gallery = new GalleryScene({
   onSubcollectionSelect: (subcollectionId) => openSubcollection(subcollectionId),
   onProductSelect: (productId) => selectProduct(productId, { openViewer: false }),
   onProductOpen: (productId) => selectProduct(productId, { openViewer: true }),
+  onCategoryPreview: (categoryId) => hud?.previewCategory(categoryId),
+  onInteractionLock: setInteractionLocked,
 });
 
-const hud = createHud({
+hud = createHud({
   root: hudRoot,
   categories,
-  onHome: showHome,
+  onIntro: showIntro,
+  onBrowseHome: showBrowseHome,
   onCategory: openCategory,
   onProduct: (productId, options = {}) => selectProduct(productId, { openViewer: options.openViewer ?? appState.mode === "viewer" }),
   onViewer: () => openViewer(appState.activeProductId),
   onStepProduct: stepProduct,
   onCategoryScroll: (direction) => gallery.scrollCategoryBy(direction),
+  onVariantChange: (productId, params) => gallery.applyViewerVariant(productId, params),
 });
 
 function sync() {
@@ -39,13 +51,25 @@ function sync() {
   hud.update(appState);
 }
 
-function showHome() {
+function showIntro() {
+  if (interactionLocked) return;
+  appState.mode = "intro";
+  appState.activeSubcollectionId = null;
+  sync();
+}
+
+function showBrowseHome() {
+  if (interactionLocked) return;
   appState.mode = "home";
   appState.activeSubcollectionId = null;
   sync();
 }
 
-function openCategory(categoryId) {
+async function openCategory(categoryId) {
+  if (interactionLocked) return;
+  if (appState.mode === "category" && appState.activeCategoryId === categoryId && !appState.activeSubcollectionId) return;
+  setInteractionLocked(true);
+  await gallery.prepareCategory(categoryId);
   const category = getCategory(categoryId);
   appState.mode = "category";
   appState.activeCategoryId = category.id;
@@ -54,7 +78,11 @@ function openCategory(categoryId) {
   sync();
 }
 
-function openSubcollection(subcollectionId) {
+async function openSubcollection(subcollectionId) {
+  if (interactionLocked) return;
+  if (appState.mode === "category" && appState.activeSubcollectionId === subcollectionId) return;
+  setInteractionLocked(true);
+  await gallery.prepareCategory(appState.activeCategoryId, subcollectionId);
   const category = getCategory(appState.activeCategoryId);
   appState.mode = "category";
   appState.activeSubcollectionId = subcollectionId;
@@ -63,6 +91,7 @@ function openSubcollection(subcollectionId) {
 }
 
 function selectProduct(productId, { openViewer }) {
+  if (interactionLocked) return;
   const { product, category } = getProduct(productId);
   appState.mode = openViewer ? "viewer" : appState.mode === "home" ? "category" : appState.mode;
   appState.activeCategoryId = category.id;
@@ -71,6 +100,7 @@ function selectProduct(productId, { openViewer }) {
 }
 
 function openViewer(productId) {
+  if (interactionLocked) return;
   const { product, category } = getProduct(productId);
   appState.mode = "viewer";
   appState.activeCategoryId = category.id;
@@ -79,6 +109,7 @@ function openViewer(productId) {
 }
 
 function stepProduct(direction) {
+  if (interactionLocked || appState.mode === "intro") return;
   const category = getCategory(appState.activeCategoryId);
   const products = getSubcollectionProducts(category, appState.activeSubcollectionId);
   const index = products.findIndex((product) => product.id === appState.activeProductId);
@@ -88,7 +119,8 @@ function stepProduct(direction) {
 }
 
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") showHome();
+  if (interactionLocked) return;
+  if (event.key === "Escape") showIntro();
   if (event.key === "ArrowLeft") {
     if (appState.mode === "category") gallery.scrollCategoryBy(-1);
     else stepProduct(-1);
@@ -97,7 +129,8 @@ window.addEventListener("keydown", (event) => {
     if (appState.mode === "category") gallery.scrollCategoryBy(1);
     else stepProduct(1);
   }
-  if (event.key === "Enter" && appState.mode !== "viewer") openViewer(appState.activeProductId);
+  if (event.key === "Enter" && appState.mode === "intro") showBrowseHome();
+  else if (event.key === "Enter" && appState.mode !== "viewer") openViewer(appState.activeProductId);
 });
 
 sync();

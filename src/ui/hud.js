@@ -1,11 +1,53 @@
 import { getCategory, getProduct, getSubcollection } from "../data/catalog.js";
+import { COMMERCE } from "../data/shopifyVariants.js";
 
 const SHOPIFY_PRODUCT_BASE = "https://blackaestheticspk.com/products";
 
-export function createHud({ root, categories, onHome, onCategory, onProduct, onStepProduct, onCategoryScroll }) {
+// Site-side variant additions for Wall Art + Digital Art (NOT yet on Shopify — D53).
+// Pricing rule (Master Khurram, 2026-07-12): Acrylic +30% over wood, 5mm +20% over base.
+const THICKNESS_GROUP = { name: "Thickness", values: ["2mm", "3mm", "5mm"] };
+const MATERIAL_GROUP = { name: "Material", values: ["Wood", "Acrylic"] };
+const THICKNESS_MULTIPLIER = { "2mm": 1, "3mm": 1, "5mm": 1.2 };
+const MATERIAL_MULTIPLIER = { Wood: 1, Acrylic: 1.3 };
+
+const isPanelKind = (product) => product.kind === "wall-art" || product.kind === "digital";
+
+function formatPkr(amount) {
+  return `PKR ${Math.round(amount).toLocaleString("en-US")}`;
+}
+
+// The Shopify variant whose options match every non-site-side selection; falls back to the
+// cheapest variant so a partial selection still prices sensibly.
+function matchedVariant(commerce, selection) {
+  const found = commerce.variants.find((variant) =>
+    Object.entries(variant.options).every(([name, value]) => (selection[name] ?? value) === value),
+  );
+  return found ?? [...commerce.variants].sort((a, b) => a.price - b.price)[0];
+}
+
+// Current unit price for the selection. Shopify variant price is the exact base; the
+// site-side Thickness/Material multipliers apply on top for wall art + digital only.
+function unitPrice(product, category, selection) {
+  const commerce = COMMERCE[product.id];
+  let base = null;
+  if (commerce) {
+    base = matchedVariant(commerce, selection)?.price ?? null;
+  } else {
+    const match = String(product.price).match(/PKR\s*([\d,]+)/i);
+    if (match) base = Number(match[1].replaceAll(",", ""));
+  }
+  if (base === null) return null; // "Quote" products stay quotes
+  if (isPanelKind(product)) {
+    base *= THICKNESS_MULTIPLIER[selection.Thickness ?? "2mm"] ?? 1;
+    base *= MATERIAL_MULTIPLIER[selection.Material ?? "Wood"] ?? 1;
+  }
+  return base;
+}
+
+export function createHud({ root, categories, onIntro, onBrowseHome, onCategory, onProduct, onStepProduct, onCategoryScroll, onVariantChange }) {
   root.innerHTML = `
     <header class="hud-top">
-      <button class="brand" type="button" data-action="home" aria-label="Return home">
+      <button class="brand" type="button" data-action="intro" aria-label="Return to introduction">
         <img src="/logo-blackaesthetics.svg" alt="" />
       </button>
       <div class="hud-actions">
@@ -13,7 +55,7 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
           <span aria-hidden="true">Search products or categories</span>
         </button>
         <button class="icon-button bag-button" type="button" data-action="checkout" aria-label="Open bag">Bag</button>
-        <button class="icon-button" type="button" data-action="home" aria-label="Reset view">Reset</button>
+        <button class="icon-button" type="button" data-action="intro" aria-label="Reset view">Reset</button>
       </div>
     </header>
 
@@ -22,6 +64,8 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
       <h1>Gallery Storefront</h1>
       <span>Choose a bay to enter its collection.</span>
     </section>
+
+    <button class="intro-browse" type="button" data-action="browse-home">Browse Store</button>
 
     <nav class="category-rail" aria-label="Store categories"></nav>
 
@@ -88,7 +132,7 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
       <button type="button" data-action="prev" aria-label="Previous product">Prev</button>
       <button type="button" data-action="next" aria-label="Next product">Next</button>
       <button type="button" data-action="category" aria-label="Back to collection">Grid</button>
-      <button type="button" data-action="home" aria-label="Back home">Home</button>
+      <button type="button" data-action="browse-home" aria-label="Back to Browse Home">Home</button>
     </div>
 
     <section class="search-panel" data-panel="search" hidden>
@@ -103,6 +147,8 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
 
   const categoryRail = root.querySelector(".category-rail");
   const homePanel = root.querySelector('[data-panel="home"]');
+  const introBrowse = root.querySelector(".intro-browse");
+  const bagButton = root.querySelector(".bag-button");
   const productPanel = root.querySelector('[data-panel="product"]');
   const checkoutPanel = root.querySelector('[data-panel="checkout"]');
   const viewerControls = root.querySelector('[data-panel="viewer"]');
@@ -113,10 +159,13 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
   const searchResults = root.querySelector(".search-results");
   const optionSelections = new Map();
   let lastState = null;
+  let previewedCategoryId = null;
   let activeProductId = null;
   let quantity = 1;
+  let interactionLocked = false;
 
   root.addEventListener("click", (event) => {
+    if (interactionLocked) return;
     const optionTarget = event.target.closest("[data-option-group]");
     if (optionTarget) {
       setOption(optionTarget.dataset.optionGroup, optionTarget.dataset.optionValue);
@@ -141,9 +190,13 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
     if (!actionTarget) return;
 
     const action = actionTarget.dataset.action;
-    if (action === "home") {
+    if (action === "intro") {
       closeTemporaryPanels();
-      onHome();
+      onIntro();
+    }
+    if (action === "browse-home") {
+      closeTemporaryPanels();
+      onBrowseHome();
     }
     if (action === "search") {
       searchPanel.hidden = false;
@@ -192,7 +245,7 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
     }
 
     categoryRail.innerHTML = [
-      `<button class="${state.mode === "home" ? "is-active" : ""}" type="button" data-action="home"><span class="nav-dot"></span><span>Home</span></button>`,
+      `<button class="${state.mode === "home" ? "is-active" : ""}" type="button" data-action="browse-home"><span class="nav-dot"></span><span>Browse Home</span></button>`,
       ...categories.map(
         (item) => `
           <button class="${item.id === state.activeCategoryId && state.mode !== "home" ? "is-active" : ""}" type="button" data-category="${item.id}" aria-label="Open ${escapeAttribute(item.label)}">
@@ -203,7 +256,10 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
       ),
     ].join("");
 
-    homePanel.hidden = state.mode !== "home";
+    homePanel.hidden = true;
+    introBrowse.hidden = state.mode !== "intro";
+    categoryRail.hidden = state.mode === "intro";
+    bagButton.hidden = state.mode === "intro";
     productPanel.hidden = state.mode !== "viewer" || !checkoutPanel.hidden;
     viewerControls.hidden = state.mode !== "viewer";
     categoryScrollControls.hidden = state.mode !== "category";
@@ -215,12 +271,33 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
     renderProductPanel(product, category);
     renderCheckout(state);
     renderSearch(searchInput.value);
+    applyCategoryPreview();
+  }
+
+  function previewCategory(categoryId) {
+    previewedCategoryId = categoryId;
+    applyCategoryPreview();
+  }
+
+  function setInteractionLocked(locked) {
+    interactionLocked = locked;
+    root.dataset.interactionLocked = locked ? "true" : "false";
+    // The viewer mesh is rebuilt during transitions — reapply the remembered selection
+    // as soon as the scene hands interaction back.
+    if (!locked) notifyVariant();
+  }
+
+  function applyCategoryPreview() {
+    categoryRail.querySelectorAll("[data-category]").forEach((button) => {
+      button.classList.toggle("is-previewed", button.dataset.category === previewedCategoryId);
+    });
   }
 
   function renderProductPanel(product, category) {
     productPanel.querySelector(".eyebrow").textContent = category.label;
     productPanel.querySelector("h2").textContent = product.name;
-    productPanel.querySelector(".price").textContent = product.price;
+    const price = unitPrice(product, category, selectionFor(product.id));
+    productPanel.querySelector(".price").textContent = price === null ? product.price : formatPkr(price);
     productPanel.querySelector(".material").textContent = productDescription(product, category);
     productPanel.querySelector(".variant-groups").innerHTML = renderVariantGroups(product, category);
     productPanel.querySelector(".quantity-stepper strong").textContent = quantity;
@@ -233,7 +310,9 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
     const { product, category } = getProduct(state.activeProductId);
     checkoutPanel.querySelector("h2").textContent = product.name;
     checkoutPanel.querySelector(".checkout-options").textContent = `${selectionSummary(product, category)} · Qty ${quantity}`;
-    checkoutPanel.querySelector(".checkout-line strong").textContent = subtotal(product.price, quantity);
+    const price = unitPrice(product, category, selectionFor(product.id));
+    checkoutPanel.querySelector(".checkout-line strong").textContent =
+      price === null ? subtotal(product.price, quantity) : formatPkr(price * quantity);
     checkoutPanel.querySelector(".checkout-link").href = productUrl(product);
   }
 
@@ -268,6 +347,15 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
     const productSelections = selectionFor(lastState.activeProductId);
     productSelections[group] = value;
     render(lastState);
+    notifyVariant();
+  }
+
+  // Tell the 3D scene what the selection means so the displayed mesh represents it (D54).
+  function notifyVariant() {
+    if (!lastState || lastState.mode !== "viewer" || !onVariantChange) return;
+    const { product, category } = getProduct(lastState.activeProductId);
+    ensureSelection(product, category);
+    onVariantChange(product.id, variantParams(product, category, selectionFor(product.id)));
   }
 
   function openCheckout() {
@@ -328,14 +416,25 @@ export function createHud({ root, categories, onHome, onCategory, onProduct, onS
     return `https://wa.me/?text=${encodeURIComponent(message)}`;
   }
 
-  return { update: render };
+  return { update: render, previewCategory, setInteractionLocked };
 }
 
 function optionGroups(product, category) {
+  const commerce = COMMERCE[product.id];
+  if (commerce) {
+    // Exact Shopify option groups (names, values, order) — never invent values for
+    // matched products. Site-side Thickness/Material append for wall art + digital.
+    const groups = commerce.options.map((group) => ({ name: group.name, values: [...group.values] }));
+    if (isPanelKind(product)) groups.push(THICKNESS_GROUP, MATERIAL_GROUP);
+    return groups;
+  }
+
+  // Local-only products (no live Shopify listing yet): consistent placeholder structure.
   if (category.id === "digital-art") {
     return [
-      { name: "Print size", values: ["12 x 18", "18 x 24", "24 x 36"] },
-      { name: "Finish", values: ["Poster", "Mounted sheet"] },
+      { name: "Size", values: ["6x9 inches", "8x12 inches", "12x18 inches", "18x24 inches"] },
+      THICKNESS_GROUP,
+      MATERIAL_GROUP,
     ];
   }
 
@@ -354,13 +453,58 @@ function optionGroups(product, category) {
   }
 
   return [
-    { name: "Size", values: ["12 in", "18 in", "24 in"] },
-    { name: "Finish", values: ["Matte black", "Outdoor coat"] },
+    { name: "Size", values: ["12x18 inches", "18x24 inches", "24x36 inches"] },
+    THICKNESS_GROUP,
+    MATERIAL_GROUP,
   ];
 }
 
+const isSizeGroup = (name) => /size|scale/i.test(name);
+
+// "24x20 inches" -> 480, "12 in" -> 144, "80 mm" -> 6400 — a comparable area number.
+function parsedArea(value) {
+  const numbers = String(value).match(/\d+(\.\d+)?/g);
+  if (!numbers?.length) return null;
+  const [a, b] = numbers.map(Number);
+  return b ? a * b : a * a;
+}
+
+// Display default = the LARGEST size (Master Khurram, 2026-07-12); other groups take
+// their first value (Wood, 2mm — the visual baseline the 3D mesh is modeled at).
 function defaultOption(group) {
-  return group.values.length > 2 ? group.values[1] : group.values[0];
+  if (isSizeGroup(group.name)) {
+    let best = group.values[group.values.length - 1];
+    let bestArea = -1;
+    for (const value of group.values) {
+      const area = parsedArea(value);
+      if (area !== null && area > bestArea) {
+        bestArea = area;
+        best = value;
+      }
+    }
+    return best;
+  }
+  return group.values[0];
+}
+
+// Translate the current selection into what the 3D viewer should show.
+// sizeRatio is LINEAR (sqrt of area ratio) against the largest offered size.
+function variantParams(product, category, selection) {
+  const groups = optionGroups(product, category);
+  let sizeRatio = 1;
+  const sizeGroup = groups.find((group) => isSizeGroup(group.name));
+  if (sizeGroup) {
+    const areas = sizeGroup.values.map(parsedArea).filter((area) => area !== null);
+    const selectedArea = parsedArea(selection[sizeGroup.name] ?? defaultOption(sizeGroup));
+    if (areas.length && selectedArea) sizeRatio = Math.sqrt(selectedArea / Math.max(...areas));
+  }
+  let thicknessMul = 1;
+  if (isPanelKind(product) && selection.Thickness) {
+    const mm = Number(String(selection.Thickness).match(/\d+/)?.[0] ?? 2);
+    thicknessMul = mm / 2; // 2mm is the modeled baseline depth
+  }
+  const acrylic = isPanelKind(product) && selection.Material === "Acrylic";
+  return { sizeRatio, thicknessMul, acrylic };
 }
 
 function productDescription(product, category) {
@@ -369,7 +513,9 @@ function productDescription(product, category) {
 }
 
 function productUrl(product) {
-  return `${SHOPIFY_PRODUCT_BASE}/${encodeURIComponent(product.id)}`;
+  // Matched products link to their REAL live Shopify page by handle.
+  const commerce = COMMERCE[product.id];
+  return `${SHOPIFY_PRODUCT_BASE}/${encodeURIComponent(commerce?.handle ?? product.id)}`;
 }
 
 function subtotal(price, quantity) {

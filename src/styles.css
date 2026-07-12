@@ -104,6 +104,12 @@ input:focus-visible {
   pointer-events: auto;
 }
 
+#hud-root[data-interaction-locked="true"] button,
+#hud-root[data-interaction-locked="true"] a,
+#hud-root[data-interaction-locked="true"] input {
+  pointer-events: none;
+}
+
 .hud-top {
   position: fixed;
   top: 28px;
@@ -250,6 +256,32 @@ input:focus-visible {
   scrollbar-width: none;
 }
 
+.intro-browse {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  z-index: 5;
+  transform: translateX(-50%);
+  min-width: 286px;
+  height: 62px;
+  border: 1px solid rgba(216, 173, 103, 0.7);
+  border-radius: 30px;
+  background: rgba(9, 8, 7, 0.88);
+  color: #e4b869;
+  box-shadow:
+    0 18px 52px rgba(0, 0, 0, 0.36),
+    inset 0 0 24px rgba(216, 173, 103, 0.05);
+  backdrop-filter: blur(20px) saturate(1.08);
+  font-size: 1rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
 .category-rail::-webkit-scrollbar {
   display: none;
 }
@@ -288,13 +320,19 @@ input:focus-visible {
   flex: 0 0 auto;
 }
 
-.category-rail button.is-active {
+.category-rail button.is-active,
+.category-rail button.is-previewed {
   color: #fff7e8;
 }
 
-.category-rail button.is-active .nav-dot {
+.category-rail button.is-active .nav-dot,
+.category-rail button.is-previewed .nav-dot {
   background: var(--gold);
   box-shadow: 0 0 0 5px rgba(216, 173, 103, 0.12);
+}
+
+.category-rail button.is-previewed {
+  background: rgba(216, 173, 103, 0.08);
 }
 
 .category-scroll-controls {
@@ -714,8 +752,15 @@ input:focus-visible {
   .brand:hover,
   .category-rail button:hover,
   .icon-button:hover,
-  .search-pill:hover {
+  .search-pill:hover,
+  .intro-browse:hover {
     transform: translateY(-1px);
+  }
+
+  .intro-browse:hover {
+    transform: translate(-50%, -2px);
+    border-color: rgba(255, 225, 174, 0.92);
+    background: rgba(15, 12, 9, 0.94);
   }
 }
 
@@ -799,6 +844,14 @@ input:focus-visible {
       #000 calc(100% - var(--rail-fade-right)),
       transparent
     );
+  }
+
+  .intro-browse {
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    width: calc(100vw - 48px);
+    min-width: 0;
+    max-width: 320px;
+    height: 56px;
   }
 
   .category-rail button {

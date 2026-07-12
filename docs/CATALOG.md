@@ -1,12 +1,18 @@
 # CATALOG — Black Aesthetics product structure (reference)
 
-> Pulled live from Shopify Admin on 2026-06-22. Saved so agents don't re-query.
-> Source of truth for **structure**; per-product detail is fetched on demand via the
-> Shopify MCP (`search_products`). Refresh this file when collections change.
-> Store: blackaestheticspk.com · PKR · 37 collections.
+> Originally pulled live from Shopify Admin on 2026-06-22.
+> Current per-product launch alignment was generated on 2026-07-12 in
+> `docs/SHOPIFY_PRODUCT_ALIGNMENT.json`; use that JSON for handles, variants, prices,
+> collection ordering, and match confidence.
+> Store: blackaestheticspk.com · PKR · 38 collections in the latest pull.
 
-The site has **5 navigation categories** (spec §9 defined 4; "3D Objects" added — see
-DECISIONS D08). Shopify's 37 collections map into them below.
+The current web storefront has **4 active navigation categories** after D26 removed Apparel from
+the active experience: Wall Art, Digital Art, Layered Art, and 3D Objects. Apparel remains in
+Shopify and is listed here as inactive structure. Shopify's collections map into them below.
+
+Latest local runtime catalog: **198 products** — 148 Wall Art, 30 Digital Art, 5 Layered Art, and
+15 3D Objects. Latest Shopify alignment: **506 products** total, **173 local matches**, **25
+local-only**, **340 live products not yet represented in the 3D site**.
 
 **3D treatment per category (DECISIONS D07–D11):**
 - **Apparel** → dummy placeholder object.
@@ -23,7 +29,7 @@ Status legend for 3D: `DUMMY` = placeholder object · `FILES` = source files on 
 
 ---
 
-## 1. APPAREL  → nav category "Apparel"  · 3D: **DUMMY object for now**
+## 1. APPAREL  → inactive in current web nav (D26) · 3D: **DUMMY if restored later**
 | Collection | Handle | Products | GID |
 |---|---|---:|---|
 | Apparel | apparel | 41 | 295595901027 |
@@ -75,7 +81,7 @@ Umbrella + themed sub-collections (shown as the filter strip in Zone 3, spec §1
 
 ---
 
-## 5. 3D OBJECTS  → nav category "3D Objects" (NEW, 5th category)  · 3D: **FILES (real models)**
+## 5. 3D OBJECTS  → nav category "3D Objects"  · 3D: **FILES (real decimated models)**
 Real 3D products. Print/model files in `BA All DATA/3D Print Models/`.
 | Collection | Handle | Products | GID |
 |---|---|---:|---|
@@ -100,5 +106,6 @@ Used for "featured" rails, not as a browse category.
 | Digital Art / posters | `BA All DATA/Poster prints/` | Anime, Comics & Superheroes, Digital Art, Fighting Girls, Islamic, Minimalistic, Smoky Lady |
 | 3D Prints | `BA All DATA/3D Print Models/` | Batman Files, Fidget-Spinner, Lamp-Shade, Mini Joker/Superman 80mm, Poster Frame Corner Holder, flexi cat, panther |
 | Brand | `LOGO Blackaesthetics.svg` | BA logo |
-| Master 3D | `black_aesthetics_..._3d_meshes.blend` | existing meshes (56MB) |
-| Apparel | — | none — use DUMMY 3D object |
+| Master 3D | `BA All DATA/All Multilayer Art-3/BAstore.blend` | source of truth scenes `BA_SINGLE_WALL_HOME` + `BA_PRODUCTS` |
+| Shopify alignment | `docs/SHOPIFY_PRODUCT_ALIGNMENT.json`, `docs/BA_PRODUCT_LOG.xlsx` | current live product/variant/collection export and local mapping |
+| Apparel | — | inactive in current web nav; no source model |

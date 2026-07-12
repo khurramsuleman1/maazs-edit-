@@ -45,8 +45,8 @@ the endless scroller.
 | Rail mounting stems ×7 | `BA_RR_TRACK_STEM_00–06` | x = −5.2, −2.6, 0, 2.6, 5.2, 7.8, 10.4 · y −0.42 · z 3.48 | 0.02 × 0.02 × 0.36 (rail top 3.33 → header 3.66) |
 | ~~Spot lights~~ — **NONE (D41, 2026-07-03): the scene has ZERO spotlights** — all track/product/big-bay SPOT lights and fixture meshes deleted | — | — | fully lit room: world (0.09, 0.075, 0.058), cove 400W, front fills 520W, bay warm pools 120W, logo pool 130W; rail + stems remain as architecture |
 | Skirting top/bottom | `BA_RR_BLACK_SKIRTING_TOP/BOTTOM` | (2.6, −0.105, 0.22) / (2.6, −0.112, 0.065) | 18 × 0.07 × 0.16 / 18 × 0.08 × 0.09 |
-| Floor | `BA_RR_DARK_WOOD_FLOOR_CONTINUOUS` | (2.75, −3.1, −0.045) | 17.7 × 6.2 × 0.09 |
-| Plank seams ×10 long / ×14 short | `BA_RR_FLOOR_LONG_PLANK_SEAM_*`, `_SHORT_BREAK_*` | long: y −5.45 → −0.5 step 0.55, z 0.008 | 17.4 × 0.012 × 0.012, near-black |
+| Floor | `BA_RR_DARK_WOOD_FLOOR_CONTINUOUS` / web D50 marble override | (2.75, −3.1, −0.045) | 17.7 × 6.2 × 0.09 |
+| Floor seams | web D50 marble slab seams | slab grid in procedural texture | black marble with gold veining |
 | Plaster seams/marks | `BA_RR_SUBTLE_*` | verticals x −6.2, −4.35, −3, −1.65, −0.3, 1.05, 2.4, 3.75 | cosmetic, on wall face |
 | Cove wash light | `BA_RR_LONG_COVE_WALL_WASH` | (2.6, −0.62, 3.25) rot_x 75° | AREA **320W** (1, 0.72, 0.45), size 12 |
 
@@ -57,6 +57,11 @@ desc wash 90W. No spotlights anywhere; bay emissive strips/pucks/underlights are
 Camera/render: res **1672×941 (16:9)**, Cycles, color mgmt **AgX / AgX-Punchy**.
 
 ## 3. Bay anatomy — THE FRAME BOX LAW (applies to every bay, any size)
+
+> **D49 web supersession:** the current web runtime no longer renders visible category,
+> subcollection, product-grid, or viewer bay frames. This section remains the Blender/legacy
+> reference for older bay-prefab states; the live browser uses bayless wall mounts described in
+> §5/§6, with products and thick extruded vector text mounted directly on the plaster wall.
 
 A bay = a **closed black picture-frame box** around a recess:
 
@@ -82,20 +87,46 @@ fixtures BLACK · BAY INNER WALLS (recess backs) LIGHT GRAY (0.62, 0.61, 0.585, 
 mat `BA_RR_bay_inner_gray`) · art BLACK** — black art reads against the pale recess interior
 inside each black frame; the recess back is the gray canvas, NOT the main wall.
 
-## 4. HOME state
+## 4. HOME states
 
-> **D47 HOME REVISION — IMPORTANT, pending Blender viewport approval:** the four HOME bays below
+### 4.A D48 Intro Home
+
+The initial web mode is `intro`: the shared room remains visible, but the wall carries only the
+large BA mark at x `−3.35`, the statement `OBJECTS WITH PRESENCE.`, and a short About Us paragraph
+across the center/right wall. A DOM `BROWSE STORE` command is centered above the floor. It enters
+the D47 product wall without replacing or rebuilding the shared architecture. Active reference:
+`docs/inspiration-references/intro-home-reference-v1.png`.
+
+The former Home is renamed **Browse Home** in product/navigation language while retaining internal
+web mode `home` for compatibility. Intro Home is deliberately non-commercial and has no product
+meshes, bays, category dock, bag, or checkout controls.
+
+### 4.B Transition sequence
+
+Browse Home → category transitions are deterministic staged reveals. Interaction is locked first;
+the outgoing scene clears around a detached clone of the selected hero; the same visible hero then
+moves and uniformly scales to the destination mount. Destination text glyphs are prebuilt and
+revealed sequentially after landing, followed by staggered bay reveals. Interaction resumes only
+after the final bay settles. Asset parsing, texture decoding, and shader compilation must not be
+started as part of the visible reveal; cached/prebuilt destination objects are animated instead.
+
+> **D47 HOME REVISION — IMPORTANT:** the four HOME bays below
 > describe the currently approved/in-site implementation, but are superseded for the next Home
 > revision by `docs/inspiration-references/home-view-revision-bayless-v1.png`. The new Home removes
 > all bay geometry and arranges four direct-mounted product zones across the same continuous wall:
 > Wall Art salon silhouettes, Digital Art poster sheets, Layered Art hero + mandalas, and minimal
 > shelves carrying 3D objects. Each zone is one hover/click target; hover moves only that zone
 > toward the viewer and enlarges it uniformly while the corresponding bottom-nav category is
-> highlighted. Category, subcollection, and viewer geometry in §5/§6 remains unchanged. Lighting
+> highlighted. Category, subcollection, and viewer geometry is now bayless too per D49. Lighting
 > target: warm textured plaster, even logo-side illumination, controlled local product pools, rich
 > poster blacks without washout, and dark sculptural products with readable edge highlights.
 
-### 4.0 D47 staged geometry (awaiting approval)
+### 4.0 D47 bayless Home geometry
+
+On 2026-07-12 Master Khurram explicitly authorized the reference composition to be implemented
+directly in the website using existing approved/data assets. Blender parity is delegated to Claude
+and must follow `docs/CLAUDE_BLENDER_D47_HANDOFF.md`; it no longer blocks this web-only Home revision.
+The later D49 web pass extends the same bayless language to category, subcollection, and viewer states.
 
 Collection **`BA_HOME_D47_STAGED`** contains four identity-root zone empties for future web hover
 mapping. All displayed products are evaluated/baked copies of existing approved product geometry;
@@ -105,8 +136,8 @@ source objects and every §5/§6 bay remain untouched.
 |---|---|
 | `D47_ZONE_WALL_ART` | hero horse `(−3.55, 2.10; 1.35×1.65)`; salon row x `−4.45/−3.78/−3.12/−2.52`, z `0.84–0.88`, bounds `0.54–0.62×0.58–0.68` |
 | `D47_ZONE_DIGITAL_ART` | Ironman poster sheets `(−1.65,1.92;0.58×1.08)`, `(−0.92,1.90;0.72×1.58)`, `(−0.18,1.05;0.50×0.86)` |
-| `D47_ZONE_LAYERED_ART` | wolf stack hero `(1.20,1.88;1.38×1.72)`; small stacks `(0.35,2.62;0.52×0.60)` and `(2.15,0.92;0.56×0.64)` |
-| `D47_ZONE_3D_ART` | shelves centered x `3.75`, z `2.08/0.82`, width `1.75`; panther/fidget groups at `(3.52,2.40)`, `(4.35,2.32)`, `(3.25,1.10)`, `(4.12,1.13)` |
+| `D47_ZONE_LAYERED_ART` | one wolf stack hero only, web pivot `1.55`, normal gray layer palette; no extra small wall-art pieces in Browse Home |
+| `D47_ZONE_3D_ART` | one forward shelf only, web pivot `3.55`; one panther/leopard product, rotated sideways and lifted to stand on top of the shelf so it projects outward instead of into the wall |
 
 D47 review camera **`BA_D47_HOME_REVIEW_CAMERA`**: location `(−0.72, −12.2, 1.72)`,
 31 mm, aimed at `(−0.72, −0.08, 1.72)`. Home-only AREA pools (still no spotlights): logo/wall/
@@ -114,11 +145,26 @@ digital/layered/3D energies `150/48/95/58/72 W`, color linear `(1.0, 0.62, 0.28)
 Home-only staged materials: `D47_MAT_BLACK_SCULPT`, `D47_MAT_SHELF_BLACK`, and dark layered
 ramp `D47_MAT_LAYER_1–4`; these do not alter source product materials.
 
+The web runtime mirrors these roots as `homeZones`: each is one transform parent, one broad
+invisible category hit target, and several real product displays. Hover uniformly scales the root
+to 1.065 and moves it 0.20 m toward the camera; it never scales the wall or a bay. Desktop Home
+camera is `(−0.54, 1.62, responsive-z)` looking at `(−0.54, 1.60, 0)`. Portrait shifts x to
+`−4.0` to feature the complete logo and Wall Art while the dock exposes all categories.
+
+Web visual-parity pass (2026-07-12): Home content is compressed to roughly x `−4.9..4.35`
+so the wall occupies more of the viewport and loses the dead left margin. Zone pivots are Wall
+`−2.45`, Digital `−0.25`, Layered `1.55`, and 3D `3.55`; logo center is `−4.20`, and desktop
+Home camera/look x is `−0.25`. The Wall/Digital products were slightly reduced and redistributed
+to keep visible air between neighboring meshes. Layered Home uses one correctly colored wolf stack;
+3D Home uses one shelf carrying one sideways panther set forward from the wall. Seven Home-only warm keys align
+with visible track heads and provide the reference's separated wall pools. These lights and the
+Home-only dark product materials remain children of `homeGroup`, so downstream bay states retain
+their existing lighting/material contract.
+
 Future web interaction contract after approval: each zone root is one raycast target. Hover moves
 the complete zone toward the camera, uniformly scales it to approximately `1.08`, adds a restrained
 warm focus pool, and applies an `is-previewed` state to the matching bottom-nav category. Pointer
-leave returns both zone and nav state. Click enters the existing category bay state; §5/§6 remain
-unchanged.
+leave returns both zone and nav state. Click enters the bayless category wall state.
 
 Show: `BA_SW_RR_HOME_BAYS` + `BA_SW_REAL_PRODUCTS` + `BA_SW_REAL_LOGO`. Hide: `BA_SW_SCROLLER_PAGE`.
 Camera **`BA_SW_HOME_FRONT_CAMERA_REVIEW`**: loc (**−1.15**, −10, 1.7), rot_x 90.17°, **31 mm**, shift_y 0
@@ -151,38 +197,36 @@ Show: `BA_SW_SCROLLER_PAGE` (+ shared architecture). Hide: `BA_SW_RR_HOME_BAYS`,
 `BA_SW_REAL_PRODUCTS`, `BA_SW_REAL_LOGO`.
 Camera **`BA_SW_FUTURE_TILTED_SCROLLER_CAMERA_REFERENCE`**: loc (−6.3, −9.8, 1.75),
 aimed at (0.15, −0.1, 1.58) (slight right-receding tilt, rot ≈ (89.2°, 0, −33.6°)), **29 mm**.
-Web behavior (D43/D44/D46): the category camera starts on the tilted scroller composition, then
+Web behavior (D43/D44/D46/D49): the category camera starts on the tilted scroller composition, then
 eases to a direct wall view once dragging begins. Desktop angled framing uses web camera
 `(-3.12, 1.82, 7.85)`; direct-wall framing uses camera/look X `1.15` at Z `10.0`, showing the
-complete hero bay plus the full eight-niche Wall Art array at 16:10 without a dead left margin.
+complete hero wall mount plus the full eight-niche Wall Art array at 16:10 without a dead left margin.
 Mobile direct-wall framing prioritizes the browse array at camera/look X `0.9`, Z `12.5`; the
 narrow portrait view cannot usefully show both the hero and multiple columns. The right-side
 shelf/grid track translates left under
 pointer drag, wheel, arrows, or keyboard. The
-big selection bay remains fixed; small bays are virtualized and stop being built once their left
-edge approaches the big-bay wall boundary, so they shrink and disappear before touching the hero
-bay's right wall instead of loading or overlapping the entire catalog at once. Wall Art and Digital Art first show Shopify-style niche
-subcollection bays; selecting a niche swaps the moving track to only that niche's products.
-Portrait browser uses a backed-up category camera aimed closer to the active big bay so the
-category title and raised shelf-front text do not crop.
+big selection mount remains fixed; small wall mounts are virtualized and stop being built once
+their left edge approaches the hero boundary, so they shrink and disappear before crowding the
+hero mount instead of loading or overlapping the entire catalog at once. Wall Art and Digital Art
+first show Shopify-style niche wall mounts; selecting a niche swaps the moving track to only that
+niche's products. Portrait browser uses a backed-up category camera aimed closer to the active
+hero mount so category title and thick wall text do not crop.
 
-State-motion contract (D44-D46): bay geometry never travels between states. The selected product
-mesh detaches forward from its source recess while each outgoing bay retreats uniformly around its
-own center. The old architecture clears, an empty correctly proportioned destination bay settles
-at its mount, and the same product mesh moves and scales uniformly into that bay before the
-destination product copy takes over. The shared grid container is never scaled, so bays cannot
-converge or intersect, and no frame deforms. The camera holds through the landing and then pans.
-Category/niche arrays reveal one bay at a time with a small uniform scale-up. Transition progress
-uses real elapsed time rather than capped render-frame delta, so heavy SVG/STL loading may skip
-frames but can never freeze a handoff or leave a stale product under a new category label. Product
-commerce controls remain delayed until the 3D handoff is established.
+State-motion contract (D49): visible bay geometry is gone. The selected product mesh detaches
+forward from its source wall mount, travels as the same visible hero, and lands on the destination
+wall mount before the destination product copy takes over. The shared grid container is never
+scaled, so mounts cannot converge or intersect. Category/niche arrays reveal one wall mount at a
+time with a small uniform scale-up. Transition progress uses real elapsed time rather than capped
+render-frame delta, so heavy SVG/STL loading may skip frames but can never freeze a handoff or
+leave a stale product under a new category label. Product commerce controls remain delayed until
+the 3D handoff is established.
 
 ### 5.1 Description column (in the hidden-logo zone)
 All physical, flush on wall face (place y −0.085, extrude 4-12 mm). Blender left edge **DX = −5.45**.
-The web runtime uses the same physical wall-copy idea but shifts the group inward to about **x −4.72**
-so the tilted category camera keeps the heading and description readable. This is category-level
-copy, not product-specific copy. It renders as thick wall-mounted vector text in Blender and as
-extruded SVG/TextGeometry in the web runtime.
+The web runtime uses the same physical wall-copy idea but shifts the group inward to about **x −4.82**
+so the tilted category camera keeps the heading and enlarged description readable without colliding
+with the big bay. This is category-level copy, not product-specific copy. It renders as thick
+wall-mounted vector text in Blender and as extruded SVG/TextGeometry in the web runtime.
 
 | Element | Object | z | Size / dim | Material |
 |---|---|---|---|---|
@@ -192,34 +236,36 @@ extruded SVG/TextGeometry in the web runtime.
 | Body = category art-type description | `BA_SP_DESC_BODY` | 2.05 | 0.085 | black |
 | Price | `BA_SP_DESC_PRICE` | — | hidden/empty in category state | — |
 
-### 5.2 Big selection bay (`BA_SP_BIG_*`)
-Center x **−2.55**. Recess **2.0 w**, spans **z 0.56 → 2.91** (h 2.35, cz 1.735) —
-**top aligned to row-0 recess top, bottom to row-1 recess bottom** (Master Khurram's rule).
-Jamb 0.16; cap at z 2.99; shelf 2.32 × 0.36 × 0.1 at (−2.55, −0.26, 0.51) = same z as row-1
-shelves; underglow (−2.55, −0.105, 0.442); top strip z 2.89.
-Product: current category/niche lead product, 1.7 m wide, centered z 1.735, flush −0.1805.
-Spotlights: NONE (D41). Hover/focus effects use additive warm wall pools, not WebGL spotlights.
+### 5.2 Big selection wall mount (`BA_SP_BIG_*`)
+Center x **−2.55**. No visible recess, frame, jamb, cap, shelf, puck, or underlight. The mount
+uses an invisible raycast/transition box about **2.12 w × 2.35 h** centered z/y `1.735`.
+Product: current category/niche lead product, 1.64 m wide target, mounted directly on the wall
+with a warm additive wall pool behind it. The product name is thick black extruded vector text
+below the hero in category mode. Spotlights: NONE (D41).
 
-### 5.3 Small bay grid (2 rows × 10 columns, continues right)
-Bay: recess **0.82 w × 0.98 h**, jamb 0.07, shelf 0.96 × 0.36 × 0.1 at y −0.26
-(z: row0 1.88, row1 0.51), underglow y −0.105 (z row0 1.822 / row1 0.452), top strip at
-recess top − 0.02 (z row0 2.89 / row1 1.52).
+### 5.3 Small wall-mount grid (2 rows × 10 columns, continues right)
+Each grid item is a bayless wall mount: no visible recess, frame, jamb, cap, shelf, puck, or
+underlight. The runtime keeps an invisible hit/transition box about **0.90 w × 0.98 h** around
+each product. Product/niche labels are thick black extruded vector text below the product; product
+counts remain small gold extrusions near the product.
 
-- **Row centers: z = 2.42 (row 0) and 1.05 (row 1)** → recess tops 2.91 / 1.54, bottoms 1.93 / 0.56.
-- **Column centers: x = −0.4 + 1.22·k** (k = 0..9 → −0.4, 0.82, 2.04, 3.26, 4.48, 5.7, 6.92, 8.14, 9.36, 10.58).
-- Flat art normalized to **0.60 m wide** flush at −0.1805; acrylic posters 0.44 m wide;
-  3D objects stand ON the bay shelf (y ≈ −0.28).
+- **Row centers: z = 2.47 (row 0) and 1.00 (row 1)** → extra vertical breathing room between shelf/front labels.
+- **Column centers: x = −0.4 + 1.36·k** (k = 0..9 → −0.4, 0.96, 2.32, 3.68, 5.04, 6.4, 7.76, 9.12, 10.48, 11.84).
+- Direct categories with six or fewer products, including Layered Art, use compact web centers
+  `x = −0.18 + 1.05·k` so all pieces are visible in the first category view.
+- Flat art normalized to **0.60 m wide**; acrylic posters 0.44 m wide. Per D52, 3D Objects keep
+  the bayless wall language but add black floating shelves with their back edge offset from the
+  plaster; object meshes sit forward over those shelves instead of mounting flat to the wall.
 - Runtime occupancy (D43): Wall Art and Digital Art initially show subcollection/niche cards
   (examples: Animals, Anime/Manga, Minimalistic, Naruto/Anime, Comics & Movies, Smoking Lady).
   After a niche is selected, the same two-row moving track shows only products in that niche.
   Layered Art and 3D Objects continue to show direct products because their catalogs are small.
-  Moving-track bays stay full-size at the initial first column, then shrink before disappearing at
-  the hero-bay boundary and grow back as they re-enter the safe shelf area. Hover enlarges/lifts
-  only the product display inside the bay, leaving the bay frame itself in place, and shows an
-  additive warm focus pool; no real spotlights are created.
-- Small 3D-object procedural previews use a conservative `0.42` scale for jamb clearance; tails,
-  legs, and bases must remain inside the recess even under the angled category camera. Grid hover
-  animation multiplies each display's stored base scale instead of resetting it to `1`.
+  Moving-track mounts stay full-size at the initial first column, then shrink before disappearing
+  at the hero boundary and grow back as they re-enter the safe wall area. Hover enlarges/lifts only
+  the product display inside the mount and shows an additive warm focus pool; no real spotlights
+  are created.
+- Small 3D-object procedural previews use a conservative `0.42` scale for angled-camera clearance.
+  Grid hover animation multiplies each display's stored base scale instead of resetting it to `1`.
 
 Lights: row washes AREA 12 × 0.5 at (5.0, −1.4, 3.1) rot 55° 180W (row0) and (5.0, −1.6, 1.9)
 rot 65° 140W (row1); front fill 15 × 2.8, 260W at (2.4, −6.5, 2.5) rot 72°; description wash
@@ -229,10 +275,13 @@ shader failures from too many spot/shadow uniforms).
 
 ## 6. PRODUCT VIEWER state — web built, Blender collection optional
 
-Same wall. The web runtime uses one centered product bay on the wall, camera zooms close with a
-clamped orbit, and DOM product UI appears around it. No extra category grid or wall-above-bay title
-appears in this state. Seven browser-safe 3D print STLs now load as real viewer meshes; larger
-figure/lamp STLs remain lightweight stand-ins until optimized or exported as approved web assets.
+Same wall. The web runtime uses one centered bayless product wall mount, camera zooms close with a
+clamped orbit, and DOM product UI appears around it. Non-object products sit about `0.48` web units
+off the wall so rotation does not intersect the wall plane. Per D52, 3D Objects sit farther forward
+on a black floating shelf offset from the plaster. The product title appears above the product as
+thick black extruded vector text on the wall. Seven browser-safe 3D print STLs now load as real
+viewer meshes; larger figure/lamp STLs remain lightweight stand-ins until optimized or exported as
+approved web assets.
 If a Blender parity collection is needed later, build it as `BA_SW_VIEWER_PAGE` following the
 frame-box law and document its exact coordinates here.
 
@@ -278,7 +327,7 @@ local matrices are untouched, world positions restore exactly).
 | `BA_RR_recess_smoked_backing` | 3D-bay in-recess shelves | (0.025, 0.02, 0.016), rough 0.58 |
 | `BA_RR_warm_gold_emission` | cove, strips, underglows, lenses, shelf-front text | emission (1, 0.62, 0.28) × 4.0 |
 | `BA_SP_gold_matte` | description gold text/divider | (0.65, 0.45, 0.15), metallic 0.9, rough 0.35 |
-| `BA_RR_dark_wood_floor` / `BA_RR_floor_seam_soft` | floor / seams | (0.115, 0.062, 0.032) r0.45 / near-black seams |
+| D50 web black-gold marble floor | floor / slab seams | procedural near-black marble base, subtle slab seams, shorter multidirectional grey/gold veins with small branches, emphasized gold strokes/flecks, higher repeat to avoid stretching, rough 0.28, metal 0.18 |
 | `BA_MAT_BLACK_WOOD` | horse, wall-art SVGs, panther, fidget | black wood |
 | `BA_MAT_DIGITAL_IRONMAN` | acrylic panel | image texture |
 | `BA_MAT_WOLF_1–4` | wolf layers | dark→light gray gradient |
@@ -335,7 +384,7 @@ four gold corner standoff pins (render-target detail). No separate image plane, 
   (`ACESFilmic` nearest) with warm key (1, 0.72, 0.45).
 - **Color parity law (D37):** web hexes = Blender linear → sRGB (1.055·x^(1/2.4)−0.055).
   Current derived set: warm key #ffddb3 · front fill #ffeacb · plaster #c0aa89 ·
-  bay inner #cecdc9 · ash ramp #424242–#6a6a6a · floor #5f4632 · gold emission #ffce90 ·
+  bay inner #cecdc9 · ash ramp #424242–#6a6a6a · floor D50 black-gold marble override · gold emission #ffce90 ·
   gold matte #d3b36c · black wood #302c29. Recompute here when the .blend changes.
 - Bay-glow parity (D41 fully-lit room): glowing recess puck + soft down-pool in every bay,
   underlight wash below each shelf, warm floor glow pool in front of each bay — all cheap

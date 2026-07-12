@@ -9,15 +9,16 @@ runtime of it; products from Shopify.
 
 ---
 
-## Source of truth (project reset 2026-07-03)
+## Source of truth (v2 checkpoint 2026-07-13)
 
 - **`BA All DATA/All Multilayer Art-3/BAstore.blend`** — scene `BA_SINGLE_WALL_HOME`
   (the gallery, HOME + SCROLLER states) + scene `BA_PRODUCTS` (real product mesh library).
-- **`docs/ARCHITECTURE.md`** — the geometric memory: coordinates, bay anatomy laws,
-  materials, invariants. It is the layout contract for both Blender and the web code.
+- **`docs/ARCHITECTURE.md`** — the geometric memory and web parity contract.
+- **`docs/SHOPIFY_PRODUCT_ALIGNMENT.json`** + **`src/data/shopifyVariants.js`** —
+  current Shopify product/variant alignment for the in-site v2 storefront.
 
-The previous website, old gallery scenes, and old blends were deleted. The site gets
-rebuilt fresh from the approved Blender construct.
+The active site is the v2 Vite/Three.js runtime: Intro Home, bayless Browse Home, bayless
+category/subcollection grids, floating shelves for 3D Objects, and a variant-aware product viewer.
 
 ## For AI agents (Claude & Codex)
 
@@ -37,5 +38,4 @@ assets/     approved glb exports, textures (to be repopulated)
 BA All DATA/, 2D Art All SVG/   source art + BAstore.blend (do not move)
 ```
 
-Website code (`src/`, Vite config) gets scaffolded fresh when the rebuild starts —
-direction in `docs/STATUS.md §WEBSITE DIRECTION`.
+Run locally with `npm run dev`; verify production output with `npm run build`.

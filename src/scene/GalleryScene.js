@@ -7,11 +7,10 @@ import { TextGeometry } from "three/addons/geometries/TextGeometry.js";
 import fontData from "three/examples/fonts/helvetiker_bold.typeface.json";
 import { getCategory, getHeroProduct, getProduct, getSubcollection, getSubcollectionHeroProduct, getSubcollectionProducts } from "../data/catalog.js";
 
-// Framed so the BA logo (x −5.25, 1.4 m roundel) fits FULLY in view with margin,
-// while the 3D ART bay (right edge ≈ 3.82) stays in frame. Blender review cam matches (x −1.15).
+// D47 bayless Home framing: full logo at the left through the two 3D shelves at the right.
 // z 9.65 is only the 16:9 baseline — homeCameraZ() below refits z per viewport aspect.
-const HOME_CAMERA = new THREE.Vector3(-1.05, 1.78, 9.65);
-const HOME_LOOK = new THREE.Vector3(-1.05, 1.75, 0);
+const HOME_CAMERA = new THREE.Vector3(-0.25, 1.62, 9.65);
+const HOME_LOOK = new THREE.Vector3(-0.25, 1.6, 0);
 const CATEGORY_CAMERA = new THREE.Vector3(-3.12, 1.82, 7.85);
 const CATEGORY_LOOK = new THREE.Vector3(-1.55, 1.62, 0);
 const CATEGORY_FRONTAL_CAMERA = new THREE.Vector3(1.15, 1.82, 10.0);
@@ -23,11 +22,9 @@ const CATEGORY_MOBILE_FRONTAL_LOOK = new THREE.Vector3(0.9, 1.62, 0);
 const VIEWER_CAMERA = new THREE.Vector3(0, 1.78, 6.55);
 const VIEWER_LOOK = new THREE.Vector3(0, 1.72, 0);
 
-// Home wall content extents about the camera axis: logo left edge ≈ −5.94 (plus its light
-// pool) to the 3D bay right edge ≈ +3.82 gives half-width ≈ 5.15 around x ≈ −1.06; the bays
-// span roughly y 0.25..3.35, half-height ≈ 1.55 around y ≈ 1.8.
-const HOME_HALF_W = 5.15;
-const HOME_HALF_H = 1.55;
+// Content spans the full logo and shelf composition with a little room for hover lift.
+const HOME_HALF_W = 4.6;
+const HOME_HALF_H = 1.58;
 
 // Home dolly distance from the wall plane (z = 0) so the logo AND all four bays fit with a
 // 5% margin at any landscape aspect — narrow landscape (16:10, 4:3) pulls back, ultra-wide
@@ -41,17 +38,14 @@ function homeCameraZ(aspect, fovYRad) {
   return aspect >= 1.2 ? THREE.MathUtils.clamp(d, 9.4, 13.5) : THREE.MathUtils.clamp(d, 9.4, 10.5);
 }
 
-const HOME_BAYS = {
-  "wall-art": { x: -3.35, label: "WALL ART" },
-  "digital-art": { x: -1.25, label: "DIGITAL ART" },
-  "layered-art": { x: 0.85, label: "LAYERED ART" },
-  "3d-objects": { x: 2.95, label: "3D ART" },
-};
+function homeCameraX(aspect) {
+  return aspect < 0.78 ? -4 : HOME_CAMERA.x;
+}
 
 const SMALL_GRID = {
   startX: -0.4,
-  stepX: 1.22,
-  rowY: [2.42, 1.05],
+  stepX: 1.36,
+  rowY: [2.47, 1.0],
 };
 const HERO_BAY_RIGHT_WALL_X = -1.39;
 const SMALL_BAY_HALF_WIDTH = 0.48;
@@ -69,19 +63,24 @@ const WALL_FONT = new FontLoader().parse(fontData);
 RectAreaLightUniformsLib.init();
 
 export class GalleryScene {
-  constructor({ canvas, categories, onCategorySelect, onSubcollectionSelect, onProductSelect, onProductOpen }) {
+  constructor({ canvas, categories, onCategorySelect, onSubcollectionSelect, onProductSelect, onProductOpen, onCategoryPreview, onInteractionLock }) {
     this.canvas = canvas;
     this.categories = categories;
     this.onCategorySelect = onCategorySelect;
     this.onSubcollectionSelect = onSubcollectionSelect;
     this.onProductSelect = onProductSelect;
     this.onProductOpen = onProductOpen;
+    this.onCategoryPreview = onCategoryPreview;
+    this.onInteractionLock = onInteractionLock;
     this.textureLoader = new THREE.TextureLoader();
     this.svgLoader = new SVGLoader();
     this.stlLoader = new STLLoader();
     this.textureCache = new Map();
     this.svgTextCache = new Map();
+    this.svgResolvedCache = new Map();
     this.stlCache = new Map();
+    this.stlResolvedCache = new Map();
+    this.categoryPreparationCache = new Map();
     this.lightPoolTexture = null;
     this.clickable = [];
     this.pointer = new THREE.Vector2();
@@ -99,6 +98,7 @@ export class GalleryScene {
     this.dragMoved = false;
     this.viewerOrbit = 0;
     this.hoveredEntry = null;
+    this.hoveredHomeZone = null;
     this.gridTrack = null;
     this.transition = null;
     this.pendingSelectionBay = null;
@@ -121,13 +121,15 @@ export class GalleryScene {
 
     this.materials = this.createMaterials();
     this.architecture = new THREE.Group();
+    this.introGroup = new THREE.Group();
     this.homeGroup = new THREE.Group();
     this.categoryGroup = new THREE.Group();
     this.viewerGroup = new THREE.Group();
     this.transitionGroup = new THREE.Group();
 
-    this.scene.add(this.architecture, this.homeGroup, this.categoryGroup, this.viewerGroup, this.transitionGroup);
+    this.scene.add(this.architecture, this.introGroup, this.homeGroup, this.categoryGroup, this.viewerGroup, this.transitionGroup);
     this.createArchitecture();
+    this.createIntro();
     this.createHome();
     this.createLights();
     this.bindEvents();
@@ -143,26 +145,50 @@ export class GalleryScene {
     const sourceBay = this.pendingSelectionBay ?? this.findTransitionSource(previousState, state);
     const sourceProduct = this.findTransitionProduct(sourceBay);
     const sourceClone = sourceProduct ? this.cloneInWorld(sourceProduct) : null;
-    // The old bay remains in the outgoing scene, but its selected product is detached into its
-    // own travel clone so the mesh can leave the recess without appearing twice.
+    // The old wall mount remains in the outgoing scene, but its selected product is detached into
+    // its own travel clone so the mesh can leave the wall without appearing twice.
     const sourceWasVisible = sourceProduct?.visible;
     if (sourceProduct) sourceProduct.visible = false;
-    const outgoingClone = previousState ? this.cloneInWorld(this.activeGroup(previousState.mode)) : null;
+    // Browse Home clears instantly around the selected hero. Cloning the full product wall adds
+    // no useful information and can briefly expose large transparent/background planes.
+    const outgoingClone = previousState && previousState.mode !== "home" ? this.cloneInWorld(this.activeGroup(previousState.mode)) : null;
     if (sourceProduct) sourceProduct.visible = sourceWasVisible;
     this.pendingSelectionBay = null;
     this.lastSignature = signature;
     this.state = { ...state };
 
+    this.introGroup.visible = state.mode === "intro";
     this.homeGroup.visible = state.mode === "home";
     this.categoryGroup.visible = state.mode === "category";
     this.viewerGroup.visible = state.mode === "viewer";
 
+    if (state.mode === "intro") {
+      this.clickable = [];
+      this.targetCamera.copy(HOME_CAMERA);
+      this.targetCamera.x = homeCameraX(this.camera.aspect);
+      this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
+      this.targetLook.copy(HOME_LOOK);
+      this.targetLook.x = this.targetCamera.x;
+      this.setIntroLayout();
+      this.startTransition(previousState, outgoingClone, null, null, null);
+      return;
+    }
+
     if (state.mode === "home") {
       this.clickable = [...this.homeClickTargets];
       this.targetCamera.copy(HOME_CAMERA);
+      this.targetCamera.x = homeCameraX(this.camera.aspect);
       // Re-entering home: refit the dolly for the live viewport so logo + bays frame fully.
       this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
       this.targetLook.copy(HOME_LOOK);
+      this.targetLook.x = this.targetCamera.x;
+      if (previousState?.mode === "intro") {
+        [...this.homeZones.values()].forEach((entry, index) => {
+          entry.revealProgress = 0;
+          entry.revealIndex = index;
+          entry.group.scale.setScalar(0.01);
+        });
+      }
       this.startTransition(
         previousState,
         outgoingClone,
@@ -193,6 +219,7 @@ export class GalleryScene {
   }
 
   activeGroup(mode) {
+    if (mode === "intro") return this.introGroup;
     if (mode === "category") return this.categoryGroup;
     if (mode === "viewer") return this.viewerGroup;
     return this.homeGroup;
@@ -200,6 +227,7 @@ export class GalleryScene {
 
   findTransitionSource(previousState, nextState) {
     if (!previousState) return null;
+    if (previousState.mode === "intro") return null;
     if (previousState.mode === "home") return this.homeBays?.get(nextState.activeCategoryId) ?? null;
     if (previousState.mode === "viewer") return this.viewerBay ?? null;
     if (previousState.mode === "category") {
@@ -233,6 +261,13 @@ export class GalleryScene {
           : child.material.clone();
       }
     });
+    const excluded = [];
+    clone.traverse((child) => {
+      if (child !== clone && child.userData?.excludeFromTransition && !child.parent?.userData?.excludeFromTransition) {
+        excluded.push(child);
+      }
+    });
+    excluded.forEach((child) => child.parent?.remove(child));
     object.getWorldPosition(clone.position);
     object.getWorldQuaternion(clone.quaternion);
     object.getWorldScale(clone.scale);
@@ -242,6 +277,7 @@ export class GalleryScene {
 
   startTransition(previousState, outgoing, source, destinationBay, destinationProduct) {
     if (!previousState) return;
+    this.onInteractionLock?.(true);
     const cameraEnd = this.targetCamera.clone();
     const lookEnd = this.targetLook.clone();
     const outgoingItems = outgoing ? this.collectOutgoingItems(outgoing) : [];
@@ -283,8 +319,16 @@ export class GalleryScene {
         entry.bay.scale.setScalar(0.01);
       });
       if (this.categoryDescription) {
-        this.categoryDescription.visible = false;
-        this.categoryDescription.scale.setScalar(0.94);
+        this.categoryDescription.visible = true;
+        this.categoryDescription.userData.revealGlyphs?.forEach((glyph) => {
+          glyph.visible = false;
+          glyph.scale.copy(glyph.userData.revealBaseScale).multiplyScalar(0.78);
+          glyph.position.copy(glyph.userData.revealBasePosition);
+          glyph.position.z += 0.055;
+        });
+        if (this.categoryDescription.userData.revealDivider) {
+          this.categoryDescription.userData.revealDivider.visible = false;
+        }
       }
     }
 
@@ -292,7 +336,14 @@ export class GalleryScene {
     this.transition = {
       elapsed: 0,
       startedAt: performance.now(),
-      duration: this.state.mode === "viewer" ? 2.0 : 2.5,
+      duration:
+        this.state.mode === "category"
+          ? 2.35 + Math.min(0.8, (this.gridBays?.size ?? 0) * 0.045)
+          : this.state.mode === "viewer"
+            ? 2.15
+            : this.state.mode === "home"
+              ? 1.65
+              : 1.35,
       outgoing,
       outgoingItems,
       source,
@@ -350,17 +401,32 @@ export class GalleryScene {
     if (this.categoryDescription) {
       this.categoryDescription.visible = true;
       this.categoryDescription.scale.setScalar(1);
+      this.categoryDescription.userData.revealGlyphs?.forEach((glyph) => {
+        glyph.visible = true;
+        glyph.scale.copy(glyph.userData.revealBaseScale);
+        glyph.position.copy(glyph.userData.revealBasePosition);
+      });
+      if (this.categoryDescription.userData.revealDivider) {
+        this.categoryDescription.userData.revealDivider.visible = true;
+      }
     }
     if (this.gridBays) {
       this.gridBays.forEach((entry) => {
         entry.revealProgress = 1;
       });
     }
+    if (this.homeZones) {
+      this.homeZones.forEach((entry) => {
+        entry.revealProgress = 1;
+      });
+    }
     this.transition = null;
+    this.onInteractionLock?.(false);
   }
 
   scrollCategoryBy(direction) {
-    this.scrollCategoryTo(this.scrollOffset + direction * SMALL_GRID.stepX * 3);
+    const stepX = this.gridLayout?.stepX ?? SMALL_GRID.stepX;
+    this.scrollCategoryTo(this.scrollOffset + direction * stepX * 3);
   }
 
   scrollCategoryTo(value) {
@@ -372,26 +438,63 @@ export class GalleryScene {
     this.updateCategoryGrid();
   }
 
+  prepareCategory(categoryId, subcollectionId = null) {
+    const cacheKey = `${categoryId}:${subcollectionId ?? "all"}`;
+    if (this.categoryPreparationCache.has(cacheKey)) return this.categoryPreparationCache.get(cacheKey);
+
+    const category = getCategory(categoryId);
+    const subcollection = getSubcollection(category, subcollectionId);
+    let products;
+    if (subcollection) {
+      products = getSubcollectionProducts(category, subcollection.id).slice(0, 18);
+    } else if (category.subcollections?.length) {
+      products = category.subcollections
+        .map((item) => category.products.find((product) => product.id === item.coverProductId))
+        .filter(Boolean);
+    } else {
+      products = category.products.slice(0, 18);
+    }
+    products.unshift(subcollection ? getSubcollectionHeroProduct(category, subcollection.id) : getHeroProduct(category));
+    const uniqueProducts = [...new Map(products.map((product) => [product.id, product])).values()];
+
+    const tasks = uniqueProducts.flatMap((product) => {
+      if (product.kind === "wall-art" && product.image) return [this.loadSvgText(product.image)];
+      if (product.kind === "digital" && product.image) {
+        const texture = this.loadTexture(product.image);
+        return [texture.userData.readyPromise ?? Promise.resolve(texture)];
+      }
+      if (product.kind === "layered") return (product.layers ?? []).map((path) => this.loadSvgText(path));
+      if (product.kind === "object" && product.model) return [this.loadStlGeometry(product.model)];
+      return [];
+    });
+    const preparation = Promise.allSettled(tasks).then(() => undefined);
+    this.categoryPreparationCache.set(cacheKey, preparation);
+    return preparation;
+  }
+
   createMaterials() {
     const ashTexture = this.createAshTexture();
+    const plasterTexture = this.createPlasterTexture();
     ashTexture.repeat.set(3.2, 0.9);
     return {
       // BA_RR_warm_plaster_real_ratio: linear (0.53, 0.40, 0.25) -> sRGB #c0aa89 (baked into the texture).
       wall: new THREE.MeshStandardMaterial({
-        map: this.createPlasterTexture(),
+        map: plasterTexture,
+        bumpMap: plasterTexture,
         roughness: 0.86,
         metalness: 0,
+        bumpScale: 0.028,
       }),
       // BA_RR_bay_inner_gray: linear (0.62, 0.61, 0.585) -> #cecdc9 — the gray canvas behind black art.
       bayInner: new THREE.MeshStandardMaterial({ color: 0xcecdc9, roughness: 0.85 }),
       // BA_MAT_ASH_WOOD_DARKGREY: grey grain ramp 0.055 -> 0.145 (#424242 -> #6a6a6a) baked into texture.
       blackAsh: new THREE.MeshStandardMaterial({ map: ashTexture, roughness: 0.62, metalness: 0 }),
       black: new THREE.MeshStandardMaterial({ color: 0x050403, roughness: 0.58, metalness: 0.06 }),
-      // BA_RR_dark_wood_floor: linear (0.115, 0.062, 0.032) -> #5f4632 baked into texture, rough 0.45.
+      // D50 web floor: black-and-gold marble slabs, generated procedurally so no new asset is needed.
       floor: new THREE.MeshStandardMaterial({
         map: this.createFloorTexture(),
-        roughness: 0.45,
-        metalness: 0.02,
+        roughness: 0.28,
+        metalness: 0.18,
       }),
       // BA_RR_warm_gold_emission: emission (1, 0.62, 0.28) x4 -> #ffce90.
       goldLight: new THREE.MeshStandardMaterial({ color: 0xffce90, emissive: 0xffce90, emissiveIntensity: 2.4, roughness: 0.34 }),
@@ -460,126 +563,215 @@ export class GalleryScene {
     }
   }
 
+  createIntro() {
+    const wallTone = new THREE.Mesh(
+      new THREE.PlaneGeometry(18, 3.6),
+      new THREE.MeshBasicMaterial({ map: this.createHomeWallFinishTexture(), transparent: true, opacity: 0.34, depthWrite: false }),
+    );
+    wallTone.position.set(2.6, 1.8, 0.002);
+    wallTone.userData.excludeFromTransition = true;
+    this.introGroup.add(wallTone);
+
+    const logo = this.createLogoPlane(2.18, 2.18);
+    logo.position.set(-3.65, 1.72, 0.045);
+    this.introLogo = logo;
+    this.introGroup.add(logo, this.createWallLightPool(-3.65, 1.82, 2.65, 3.05, 0.2));
+
+    const copyGroup = new THREE.Group();
+    this.introCopy = copyGroup;
+    const statement = this.createExtrudedText("OBJECTS WITH PRESENCE.", 0.18, 0.024, this.materials.wallText);
+    statement.position.set(-0.95, 2.15, 0.045);
+    const statementBox = statement.geometry.boundingBox;
+    const statementWidth = statementBox.max.x - statementBox.min.x;
+    if (statementWidth > 4.55) statement.scale.setScalar(4.55 / statementWidth);
+    copyGroup.add(statement);
+
+    const aboutLines = [
+      "BLACK AESTHETICS CREATES DISTINCTIVE WALL ART,",
+      "DIGITAL PRINTS, LAYERED PIECES AND 3D OBJECTS",
+      "FOR SPACES WITH CHARACTER.",
+    ];
+    aboutLines.forEach((line, index) => {
+      const text = this.createExtrudedText(line, 0.068, 0.016, this.materials.wallText);
+      text.position.set(-0.92, 1.62 - index * 0.18, 0.04);
+      copyGroup.add(text);
+    });
+    this.introGroup.add(copyGroup);
+
+    [-4.5, -2.9, -1.3, 0.3, 1.9, 3.5].forEach((x) => {
+      const fixture = this.createHomeFixture(x);
+      const pool = this.createWallLightPool(x, 2.12, 1.55, 2.8, 0.15);
+      const key = this.createHomeKeyLight(x);
+      fixture.userData.excludeFromTransition = true;
+      pool.userData.excludeFromTransition = true;
+      key.userData.excludeFromTransition = true;
+      this.introGroup.add(fixture, pool, key);
+    });
+  }
+
+  setIntroLayout() {
+    if (!this.introLogo || !this.introCopy) return;
+    const portrait = this.camera.aspect < 0.78;
+    if (portrait) {
+      this.introLogo.position.set(-4, 2.2, 0.045);
+      this.introLogo.scale.setScalar(0.72);
+      this.introCopy.position.set(-3.9, -0.05, 0);
+      this.introCopy.scale.setScalar(0.5);
+      return;
+    }
+    this.introLogo.position.set(-3.65, 1.72, 0.045);
+    this.introLogo.scale.setScalar(1);
+    this.introCopy.position.set(0, 0, 0);
+    this.introCopy.scale.setScalar(1);
+  }
+
   createHome() {
     this.homeClickTargets = [];
     this.homeBays = new Map();
     this.homeProducts = new Map();
-    const logo = this.createLogoPlane(1.38, 1.38);
-    logo.position.set(-5.25, 1.72, 0.035);
-    this.homeGroup.add(this.createWallLightPool(-5.25, 1.72, 1.8, 1.9, 0.14), logo);
+    this.homeZones = new Map();
 
-    this.categories.forEach((category) => {
-      const bayInfo = HOME_BAYS[category.id];
-      const bay = this.createBay({
-        x: bayInfo.x,
-        y: 1.745,
-        width: 1.46,
-        height: 2.22,
-        jamb: 0.14,
-        shelfHeight: 0.17,
-        shelfLabel: category.label.toUpperCase().replace("OBJECTS", "ART"),
-      });
-      if (category.id === "3d-objects") {
-        // ARCHITECTURE §4.1: the 3D bay carries two in-recess smoked shelves — panther on the
-        // top shelf, fidget gear on the mid shelf (real STL meshes, as in the render target).
-        const smoked = new THREE.MeshStandardMaterial({ color: 0x2c2722, roughness: 0.58 });
-        const topShelf = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.045, 0.22), smoked);
-        topShelf.position.set(0, 0.255, 0.1);
-        const midShelf = topShelf.clone();
-        midShelf.position.set(0, -0.465, 0.1);
-        const panther = this.createProductDisplay(getProduct("object-panther").product, { width: 0.6, height: 0.6, big: true });
-        panther.userData.transitionProduct = true;
-        panther.position.set(0, 0.48, 0.12);
-        const fidget = this.createProductDisplay(getProduct("object-fidget-central-gear").product, { width: 0.4, height: 0.4, big: true });
-        fidget.position.set(0, -0.25, 0.12);
-        bay.add(topShelf, midShelf, panther, fidget);
-        this.homeProducts.set(category.id, panther);
-      } else {
-        const hero = getHeroProduct(category);
-        const product = this.createProductDisplay(hero, { width: 1.14, height: 1.68, big: false });
-        product.userData.transitionProduct = true;
-        product.position.set(0, -0.02, 0.09);
-        bay.add(product);
-        this.homeProducts.set(category.id, product);
-      }
+    const wallTone = new THREE.Mesh(
+      new THREE.PlaneGeometry(18, 3.6),
+      new THREE.MeshBasicMaterial({ map: this.createHomeWallFinishTexture(), transparent: true, opacity: 0.34, depthWrite: false }),
+    );
+    wallTone.position.set(2.6, 1.8, 0.002);
+    wallTone.userData.excludeFromTransition = true;
+    this.homeGroup.add(wallTone);
 
-      const hit = new THREE.Mesh(new THREE.BoxGeometry(1.82, 2.72, 0.5), this.materials.hit);
-      hit.position.set(0, 0.03, 0.25);
-      hit.userData = { action: "category", categoryId: category.id };
-      bay.add(hit);
-      this.homeClickTargets.push(hit);
-      this.homeBays.set(category.id, bay);
-      this.homeGroup.add(bay);
-      this.homeGroup.add(this.createWallLightPool(bayInfo.x, 1.9, 1.72, 2.5, 0.15));
+    const logo = this.createLogoPlane(1.36, 1.36);
+    logo.position.set(-4.2, 1.78, 0.04);
+    this.homeGroup.add(this.createWallLightPool(-4.2, 1.76, 1.55, 2.7, 0.18), logo);
+
+    const wall = this.createHomeZone("wall-art", -2.45, 2.18, 2.52);
+    this.addHomeProduct(wall, "wall-elegant-horse-head", { width: 1.86, height: 1.86, homeDark: true }, 0, 0.43, 0.09, true);
+    [
+      ["wall-decor-horse", -0.84, -0.73, 0.66, 0.64],
+      ["wall-mountain-tree", -0.28, -0.72, 0.62, 0.64],
+      ["wall-geometric-horse", 0.27, -0.73, 0.6, 0.62],
+      ["wall-horse", 0.82, -0.72, 0.64, 0.64],
+    ].forEach(([id, x, y, width, height]) => this.addHomeProduct(wall, id, { width, height, homeDark: true }, x, y, 0.07));
+
+    const digital = this.createHomeZone("digital-art", -0.25, 1.96, 2.72);
+    this.addHomeProduct(digital, "digital-ironman", { width: 0.6, height: 1.08 }, -0.72, 0.02, 0.08);
+    this.addHomeProduct(digital, "digital-joker", { width: 0.78, height: 1.68 }, 0, 0.27, 0.09, true);
+    this.addHomeProduct(digital, "digital-joker-dark-knight", { width: 0.5, height: 0.9 }, 0.73, -0.45, 0.1);
+
+    const layered = this.createHomeZone("layered-art", 1.55, 2.2, 2.78);
+    this.addHomeProduct(layered, "layered-wolf", { width: 1.54, height: 1.76, big: true }, 0, 0.03, 0.11, true);
+
+    const objects = this.createHomeZone("3d-objects", 3.55, 2.05, 2.66);
+    const shelfMaterial = new THREE.MeshStandardMaterial({ color: 0x11100e, roughness: 0.5, metalness: 0.08 });
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.09, 0.72), shelfMaterial);
+    shelf.position.set(0, 0.05, 0.42);
+    shelf.castShadow = true;
+    objects.add(shelf);
+    const panther = this.addHomeProduct(objects, "object-panther", { width: 0.92, height: 0.64, big: true, homeDark: true }, 0, 0.64, 0.76, true, 2.75);
+    panther.rotation.y = Math.PI / 2;
+
+    [-4.2, -2.8, -1.35, 0.05, 1.5, 2.9, 4.05].forEach((x) => {
+      const fixture = this.createHomeFixture(x);
+      const pool = this.createWallLightPool(x, 2.15, 1.45, 2.75, 0.16);
+      const key = this.createHomeKeyLight(x);
+      fixture.userData.excludeFromTransition = true;
+      pool.userData.excludeFromTransition = true;
+      key.userData.excludeFromTransition = true;
+      this.homeGroup.add(fixture, pool, key);
     });
 
     this.clickable = [...this.homeClickTargets];
   }
 
-  createBay({ x, y, width, height, jamb, shelfHeight, shelfLabel }) {
+  createHomeZone(categoryId, x, width, height) {
+    const zone = new THREE.Group();
+    zone.position.set(x, 1.75, 0);
+    zone.userData = { isHomeZone: true, categoryId };
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.5), this.materials.hit);
+    hit.position.set(0, 0, 0.24);
+    hit.userData = { action: "category", categoryId };
+    zone.add(hit);
+    this.homeClickTargets.push(hit);
+    this.homeBays.set(categoryId, zone);
+    this.homeZones.set(categoryId, { group: zone, hit });
+    this.homeGroup.add(zone);
+    return zone;
+  }
+
+  addHomeProduct(zone, productId, bounds, x, y, z, transitionProduct = false, scale = 1) {
+    const product = this.createProductDisplay(getProduct(productId).product, bounds);
+    product.position.set(x, y, z);
+    product.scale.setScalar(scale);
+    product.userData.transitionProduct = transitionProduct;
+    zone.add(product);
+    if (transitionProduct) this.homeProducts.set(zone.userData.categoryId, product);
+    return product;
+  }
+
+  createHomeFixture(x) {
+    const fixture = new THREE.Group();
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.28, 10), this.materials.black);
+    stem.position.y = -0.13;
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.06, 0.15, 16), this.materials.black);
+    head.position.y = -0.31;
+    fixture.position.set(x, 3.31, 0.43);
+    fixture.add(stem, head);
+    return fixture;
+  }
+
+  createHomeKeyLight(x) {
+    const rig = new THREE.Group();
+    const target = new THREE.Object3D();
+    target.position.set(x, 1.55, 0);
+    const light = new THREE.SpotLight(0xffc47f, 3.5, 5.5, 0.34, 0.9, 1.4);
+    light.position.set(x, 3.18, 1.12);
+    light.target = target;
+    rig.add(light, target);
+    return rig;
+  }
+
+  createWallMount({ x, y, width, height, label, labelSize = 0.11, labelDepth = 0.03, labelOffset = 0.13, labelPlacement = "below" }) {
     const group = new THREE.Group();
     group.position.set(x, y, 0);
-    const outerWidth = width + jamb * 2;
     group.userData.isBayPrefab = true;
-    group.userData.baySize = { width: outerWidth, height: height + 0.15 + shelfHeight };
-    const bottom = -height / 2;
-    const top = height / 2;
+    group.userData.isBaylessMount = true;
+    group.userData.baySize = { width, height };
 
-    const back = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.055), this.materials.bayInner);
-    back.position.z = -0.02;
-    back.receiveShadow = true;
-
-    const left = new THREE.Mesh(new THREE.BoxGeometry(jamb, height + 0.08, 0.3), this.materials.blackAsh);
-    left.position.set(-width / 2 - jamb / 2, 0, 0.13);
-    const right = left.clone();
-    right.position.x = width / 2 + jamb / 2;
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(outerWidth, 0.15, 0.3), this.materials.blackAsh);
-    cap.position.set(0, top + 0.075, 0.13);
-    const shelf = new THREE.Mesh(new THREE.BoxGeometry(outerWidth, shelfHeight, 0.36), this.materials.blackAsh);
-    shelf.position.set(0, bottom - shelfHeight * 0.55, 0.18);
-    const under = new THREE.Mesh(new THREE.BoxGeometry(outerWidth * 0.76, 0.025, 0.035), this.materials.goldLight);
-    under.position.set(0, shelf.position.y - shelfHeight / 2 - 0.004, 0.035);
-    const topGlow = new THREE.Mesh(new THREE.BoxGeometry(width * 0.54, 0.02, 0.035), this.materials.goldLight);
-    topGlow.position.set(0, top - 0.055, 0.035);
-
-    [left, right, cap, shelf].forEach((mesh) => {
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-    });
-    group.add(back, left, right, cap, shelf, under, topGlow);
-
-    // Render-target parity: every recess has a visible glowing downlight puck under its top cap
-    // and a warm pool washing down the recess back from it.
-    const puck = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.042, 0.022, 18), this.materials.goldLight);
-    puck.position.set(0, top - 0.035, 0.1);
-    const recessPool = this.createWallLightPool(0, top - height * 0.32, width * 0.94, height * 0.9, 0.09);
-    recessPool.position.z = 0.014;
-    group.add(puck, recessPool);
-
-    // Underlight wash: warm glow running down the main wall below the shelf (Blender underlight law).
-    const downWash = this.createWallLightPool(0, bottom - shelfHeight - 0.42, outerWidth * 0.92, 0.85, 0.16);
-    downWash.position.z = 0.012;
-    group.add(downWash);
-
-    // Floor glow pool in front of the bay (warm reflection of the underlight on the dark wood).
-    const floorGlow = this.createWallLightPool(0, 0, outerWidth * 1.05, 0.9, 0.13);
-    floorGlow.rotation.x = -Math.PI / 2;
-    floorGlow.position.set(0, -y + 0.012, 0.42);
-    group.add(floorGlow);
-
-    if (shelfLabel) {
-      group.add(this.createShelfFrontLabel(shelfLabel, outerWidth, shelfHeight, shelf.position.y));
+    if (label) {
+      const labelGroup = this.createWallMountLabel(label, width, labelSize, labelDepth);
+      const labelY = labelPlacement === "above" ? height / 2 + labelOffset : -height / 2 - labelOffset;
+      labelGroup.position.set(0, labelY, 0.07);
+      group.add(labelGroup);
     }
 
     return group;
   }
 
-  createShelfFrontLabel(label, outerWidth, shelfHeight, shelfCenterY) {
-    const maxWidth = outerWidth * 0.82;
-    const maxHeight = shelfHeight * 0.68;
-    const baseSize = 0.12;
-    const depth = 0.014;
-    const lines = splitShelfLabel(label, outerWidth < 1.2 ? 12 : outerWidth < 1.9 ? 16 : 20);
+  createFloatingShelf({ width, depth = 0.54, thickness = 0.075, y = -0.34, z = 0.38 }) {
+    const group = new THREE.Group();
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(width, thickness, depth), this.materials.black);
+    slab.position.set(0, y, z);
+    slab.castShadow = true;
+    slab.receiveShadow = true;
+
+    const frontLip = new THREE.Mesh(new THREE.BoxGeometry(width * 1.02, thickness * 0.7, 0.035), this.materials.black);
+    frontLip.position.set(0, y - thickness * 0.05, z + depth / 2 + 0.018);
+    frontLip.castShadow = true;
+    frontLip.receiveShadow = true;
+
+    const wallShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(width * 1.06, thickness * 1.7),
+      new THREE.MeshBasicMaterial({ color: 0x080604, transparent: true, opacity: 0.22, depthWrite: false }),
+    );
+    wallShadow.position.set(0, y - thickness * 0.15, 0.018);
+
+    group.add(wallShadow, slab, frontLip);
+    return group;
+  }
+
+  createWallMountLabel(label, width, baseSize, depth) {
+    const maxWidth = width * 0.96;
+    const maxHeight = baseSize * 2.35;
+    const lines = splitShelfLabel(label, width < 1.05 ? 11 : width < 1.8 ? 16 : 22);
     const group = new THREE.Group();
     const lineHeight = baseSize * 1.05;
     let naturalWidth = 0;
@@ -587,7 +779,7 @@ export class GalleryScene {
     let maxY = -Infinity;
 
     lines.forEach((line, index) => {
-      const mesh = this.createExtrudedText(line, baseSize, depth, this.materials.goldLight);
+      const mesh = this.createExtrudedText(line, baseSize, depth, this.materials.wallText);
       const box = mesh.geometry.boundingBox;
       const width = box.max.x - box.min.x;
       const height = box.max.y - box.min.y;
@@ -604,7 +796,6 @@ export class GalleryScene {
     const naturalHeight = Math.max(0.001, maxY - minY);
     const scale = Math.min(1, maxWidth / Math.max(0.001, naturalWidth), maxHeight / naturalHeight);
     group.scale.setScalar(scale);
-    group.position.set(0, shelfCenterY, 0.362);
     return group;
   }
 
@@ -622,24 +813,29 @@ export class GalleryScene {
     const lead = activeSubcollection ? activeProduct ?? getSubcollectionHeroProduct(category, activeSubcollection.id) : activeProduct ?? getHeroProduct(category);
     const viewCopy = activeSubcollection ?? category;
 
-    this.categoryGroup.add(this.createWallLightPool(-4.78, 2.12, 2.25, 1.75, 0.16));
+    this.categoryGroup.add(this.createWallLightPool(-4.78, 2.12, 2.42, 1.9, 0.16));
     const desc = this.createDescriptionPanel(viewCopy, lead);
-    desc.position.set(-4.72, 2.5, 0.03);
+    desc.position.set(-4.82, 2.54, 0.03);
     this.categoryDescription = desc;
     this.categoryGroup.add(desc);
 
-    const bigBay = this.createBay({
+    const bigBay = this.createWallMount({
       x: -2.55,
       y: 1.735,
-      width: 2.0,
+      width: 2.12,
       height: 2.35,
-      jamb: 0.16,
-      shelfHeight: 0.1,
-      shelfLabel: lead.name.toUpperCase(),
+      label: lead.name.toUpperCase(),
+      labelSize: 0.13,
+      labelDepth: 0.04,
+      labelOffset: 0.11,
     });
+    const isObjectCategory = category.id === "3d-objects";
     const bigProduct = this.createProductDisplay(lead, { width: 1.64, height: 1.92, big: true });
     bigProduct.userData.transitionProduct = true;
-    bigProduct.position.set(0, 0, 0.105);
+    bigProduct.position.set(0, isObjectCategory ? 0.12 : 0, isObjectCategory ? 0.52 : 0.105);
+    if (isObjectCategory) {
+      bigBay.add(this.createFloatingShelf({ width: 1.82, depth: 0.72, thickness: 0.09, y: -0.3, z: 0.42 }));
+    }
     bigBay.add(bigProduct);
     const bigHit = new THREE.Mesh(new THREE.BoxGeometry(2.35, 2.75, 0.5), this.materials.hit);
     bigHit.position.set(0, 0, 0.28);
@@ -658,9 +854,13 @@ export class GalleryScene {
     if (this.gridBays) this.gridBays.forEach((entry) => this.disposeGridBay(entry.bay));
     this.categoryProducts = products;
     this.categoryShowingSubcollections = showingSubcollections;
+    this.gridLayout =
+      !showingSubcollections && products.length <= 6
+        ? { startX: -0.18, stepX: 1.05, rowY: [2.46, 1.02] }
+        : SMALL_GRID;
     this.bigHit = bigHit;
     this.gridBays = new Map();
-    this.maxScroll = Math.max(0, (Math.ceil(products.length / 2) - 4) * SMALL_GRID.stepX);
+    this.maxScroll = Math.max(0, (Math.ceil(products.length / 2) - 4) * this.gridLayout.stepX);
     // Windowed virtualization: only the product bays near the scroll window are built (see
     // updateCategoryGrid). With 148 Wall Art products, eagerly building every bay (a fetch + SVG
     // extrude each) was the load cost — now ~9 columns are live at a time.
@@ -668,25 +868,38 @@ export class GalleryScene {
     this.updateCategoryGrid();
   }
 
-  // Build one product bay (extruded SVG / poster / STL) and return its bay group + hit mesh.
+  // Build one wall-mounted product group (extruded SVG / poster / STL) and return its group + hit mesh.
   buildGridBay(item, index) {
     const row = index % 2;
     const col = Math.floor(index / 2);
-    const x = SMALL_GRID.startX + col * SMALL_GRID.stepX;
-    const y = SMALL_GRID.rowY[row];
+    const layout = this.gridLayout ?? SMALL_GRID;
+    const x = layout.startX + col * layout.stepX;
+    const y = layout.rowY[row];
     const product = this.categoryShowingSubcollections ? getSubcollectionHeroProduct(getCategory(this.state.activeCategoryId), item.id) : item;
-    const bay = this.createBay({
+    const bay = this.createWallMount({
       x,
       y,
-      width: 0.82,
+      width: 0.9,
       height: 0.98,
-      jamb: 0.07,
-      shelfHeight: 0.1,
-      shelfLabel: (this.categoryShowingSubcollections ? item.label : product.name).toUpperCase(),
+      label: (this.categoryShowingSubcollections ? item.label : product.name).toUpperCase(),
+      labelSize: 0.07,
+      labelDepth: 0.026,
+      labelOffset: 0.1,
     });
-    const display = this.createProductDisplay(product, { width: 0.58, height: 0.68, big: false });
+    const isObjectProduct = product.kind === "object";
+    // restY: shelf top in display space — shelf centre y 0.08 + half thickness 0.0325, minus the
+    // display group's own y offset (0.08). Keeps STLs standing ON the slab, not through it.
+    const display = this.createProductDisplay(product, {
+      width: isObjectProduct ? 0.62 : 0.58,
+      height: isObjectProduct ? 0.58 : 0.68,
+      big: false,
+      ...(isObjectProduct ? { restY: 0.0325 } : {}),
+    });
     display.userData.transitionProduct = true;
-    display.position.set(0, 0, 0.105);
+    display.position.set(0, isObjectProduct ? 0.08 : 0, isObjectProduct ? 0.44 : 0.105);
+    if (isObjectProduct) {
+      bay.add(this.createFloatingShelf({ width: 0.76, depth: 0.5, thickness: 0.065, y: 0.08, z: 0.32 }));
+    }
     bay.add(display);
     bay.add(this.createWallLightPool(0, 0.16, 0.88, 1.1, 0.12));
     const hoverGlow = this.createWallLightPool(0, 0.12, 1.08, 1.28, 0.24);
@@ -700,7 +913,7 @@ export class GalleryScene {
       bay.add(count);
     }
     const hit = new THREE.Mesh(new THREE.BoxGeometry(1.02, 1.28, 0.46), this.materials.hit);
-    hit.position.set(0, 0, 0.28);
+    hit.position.set(0, 0, isObjectProduct ? 0.38 : 0.28);
     hit.userData = this.categoryShowingSubcollections ? { action: "subcollection", subcollectionId: item.id } : { action: "product", productId: product.id };
     bay.add(hit);
     this.gridTrack.add(bay);
@@ -737,7 +950,8 @@ export class GalleryScene {
     if (this.gridTrack) this.gridTrack.position.x = -this.scrollOffset;
     const rightEdge = this.camera.aspect < 0.78 ? 4.6 : 8.9;
     this.categoryProducts.forEach((item, index) => {
-      const x = SMALL_GRID.startX + Math.floor(index / 2) * SMALL_GRID.stepX;
+      const layout = this.gridLayout ?? SMALL_GRID;
+      const x = layout.startX + Math.floor(index / 2) * layout.stepX;
       const visibleX = x - this.scrollOffset;
       const near = visibleX >= HERO_GRID_VANISH_X - GRID_EDGE_SCALE_DISTANCE && visibleX <= rightEdge + GRID_EDGE_SCALE_DISTANCE;
       if (near) {
@@ -760,52 +974,119 @@ export class GalleryScene {
   buildViewer(category, product) {
     this.clearGroup(this.viewerGroup);
     this.clickable = [];
-    const bay = this.createBay({
+    const bay = this.createWallMount({
       x: 0,
       y: 1.735,
-      width: 2.2,
+      width: 2.32,
       height: 2.45,
-      jamb: 0.18,
-      shelfHeight: 0.12,
-      shelfLabel: product.name.toUpperCase(),
+      label: product.name.toUpperCase(),
+      labelSize: 0.12,
+      labelDepth: 0.042,
+      labelOffset: 0.11,
+      labelPlacement: "above",
     });
+    const isObjectProduct = product.kind === "object";
     const display = this.createProductDisplay(product, { width: 1.72, height: 1.96, big: true });
     display.userData.transitionProduct = true;
-    display.position.set(0, 0, 0.115);
+    display.position.set(0, isObjectProduct ? 0.12 : 0, isObjectProduct ? 0.62 : 0.48);
     display.userData.viewerProduct = true;
+    if (isObjectProduct) {
+      bay.add(this.createFloatingShelf({ width: 1.9, depth: 0.78, thickness: 0.09, y: -0.3, z: 0.43 }));
+    }
     bay.add(display);
     this.viewerProduct = display;
+    this.viewerProductInfo = { productId: product.id, baseScale: display.scale.clone() };
     this.viewerBay = bay;
     this.viewerGroup.add(this.createWallLightPool(0, 1.9, 2.5, 2.8, 0.16), bay);
   }
 
+  // D54: the viewer mesh REPRESENTS the selected variant. Size scales the whole piece
+  // relative to the largest size (the display default), Thickness scales depth only,
+  // Acrylic swaps non-shared materials to a gloss finish. Wood restores the originals.
+  applyViewerVariant(productId, { sizeRatio = 1, thicknessMul = 1, acrylic = false } = {}) {
+    if (this.state?.mode !== "viewer") return;
+    if (!this.viewerProduct || this.viewerProductInfo?.productId !== productId) return;
+    const base = this.viewerProductInfo.baseScale;
+    this.viewerProduct.scale.set(base.x * sizeRatio, base.y * sizeRatio, base.z * sizeRatio * thicknessMul);
+
+    if (!this.sharedMaterials) this.sharedMaterials = new Set(Object.values(this.materials));
+    this.viewerProduct.traverse((child) => {
+      if (!child.isMesh) return;
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      const swapped = materials.map((material) => {
+        if (!material?.isMeshStandardMaterial || this.sharedMaterials.has(material)) return material;
+        // Remember which original each mesh had so Wood always restores exactly.
+        if (!child.userData.woodMaterials) child.userData.woodMaterials = new Map();
+        const original = child.userData.woodMaterials.get(material.uuid)?.wood ?? material;
+        if (!acrylic) return original;
+        let entry = child.userData.woodMaterials.get(original.uuid);
+        if (!entry) {
+          const gloss = original.clone();
+          gloss.roughness = 0.12;
+          gloss.metalness = 0.08;
+          entry = { wood: original, acrylic: gloss };
+          child.userData.woodMaterials.set(original.uuid, entry);
+          child.userData.woodMaterials.set(gloss.uuid, entry);
+        }
+        return entry.acrylic;
+      });
+      child.material = Array.isArray(child.material) ? swapped : swapped[0];
+    });
+  }
+
   createDescriptionPanel(category) {
     const group = new THREE.Group();
-    const title = this.createExtrudedText(category.label.toUpperCase(), 0.148, 0.026, this.materials.wallText);
-    title.position.set(0, 0, 0);
+    const titleLine = this.createGlyphLine(category.label.toUpperCase(), 0.18, 0.03, this.materials.wallText);
+    const title = titleLine.group;
     const divider = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.014, 0.026), this.materials.wallTextGold);
     divider.position.set(0.61, -0.2, 0.01);
-    // Long labels ("DIGITAL ART", "LAYERED ART") overrun into the big bay (left edge ≈ world
-    // −3.71; this panel sits at −4.72) — auto-fit the title to the ~0.95 units available.
+    // Long labels ("DIGITAL ART", "LAYERED ART") can crowd the big bay (left edge ≈ world
+    // −3.71; this panel sits at −4.82), so the title gets a fixed physical lane.
     // Short labels ("WALL ART") measure under the cap and stay untouched.
-    const TITLE_MAX_W = 0.95;
-    const titleBox = title.geometry.boundingBox;
-    const titleWidth = titleBox.max.x - titleBox.min.x;
+    const TITLE_MAX_W = 1.02;
+    const titleWidth = titleLine.width;
     if (titleWidth > TITLE_MAX_W) {
       const s = TITLE_MAX_W / titleWidth;
       title.scale.set(s, s, 1); // uniform x/y so the glyphs keep their aspect
       divider.scale.x = s; // shrink the gold rule to match the title width
       divider.position.x = 0.61 * s; // and re-anchor it left-aligned under the title
     }
-    const lines = wrapText(category.description, 30).slice(0, 6);
+    const lines = wrapText(category.description, 26).slice(0, 6);
     const body = new THREE.Group();
+    const bodyGlyphs = [];
     lines.forEach((line, index) => {
-      const mesh = this.createExtrudedText(line, 0.043, 0.015, this.materials.wallText);
-      mesh.position.set(0, -0.34 - index * 0.105, 0);
-      body.add(mesh);
+      const textLine = this.createGlyphLine(line, 0.052, 0.017, this.materials.wallText);
+      textLine.group.position.set(0, -0.38 - index * 0.125, 0);
+      body.add(textLine.group);
+      bodyGlyphs.push(...textLine.glyphs);
     });
     group.add(title, divider, body);
+    group.userData.revealGlyphs = [...titleLine.glyphs, ...bodyGlyphs];
+    group.userData.titleGlyphCount = titleLine.glyphs.length;
+    group.userData.revealDivider = divider;
     return group;
+  }
+
+  createGlyphLine(text, size, depth, material) {
+    const group = new THREE.Group();
+    const glyphs = [];
+    let cursor = 0;
+    [...text].forEach((character) => {
+      if (character === " ") {
+        cursor += size * 0.58;
+        return;
+      }
+      const glyph = this.createExtrudedText(character, size, depth, material);
+      const box = glyph.geometry.boundingBox;
+      const width = Math.max(size * 0.22, box.max.x - box.min.x);
+      glyph.position.x = cursor - box.min.x;
+      glyph.userData.revealBasePosition = glyph.position.clone();
+      glyph.userData.revealBaseScale = glyph.scale.clone();
+      group.add(glyph);
+      glyphs.push(glyph);
+      cursor += width + size * 0.18;
+    });
+    return { group, glyphs, width: Math.max(0, cursor - size * 0.18) };
   }
 
   createProductDisplay(product, bounds) {
@@ -840,11 +1121,10 @@ export class GalleryScene {
     const group = new THREE.Group();
     const thickness = 0.012;
     const sheet = new THREE.MeshStandardMaterial({ color: 0x0a0908, roughness: 0.6, metalness: 0.02 });
-    const printFace = new THREE.MeshStandardMaterial({
+    const printFace = new THREE.MeshBasicMaterial({
       map: this.loadTexture(product.image),
-      color: 0xffffff,
-      roughness: 0.48,
-      metalness: 0,
+      color: 0xd8d0c5,
+      toneMapped: false,
     });
     // BoxGeometry material order: +x, -x, +y, -y, +z (front), -z — print goes on the front face only.
     const poster = new THREE.Mesh(
@@ -875,6 +1155,13 @@ export class GalleryScene {
     group.add(placeholder);
 
     if (!product.layers?.length) return group;
+    const cachedLayers = product.layers.map((path) => this.svgResolvedCache.get(path));
+    if (cachedLayers.every(Boolean)) {
+      group.remove(placeholder);
+      disposeObject3D(placeholder);
+      group.add(this.createLayeredSvgStack(product, bounds, cachedLayers));
+      return group;
+    }
     Promise.all(product.layers.map((path) => this.loadSvgText(path)))
       .then((svgTexts) => {
         const model = this.createLayeredSvgStack(product, bounds, svgTexts);
@@ -892,14 +1179,14 @@ export class GalleryScene {
     const content = new THREE.Group();
     const targetWidth = bounds.width * (bounds.big ? 0.9 : 0.84);
     const targetHeight = bounds.height * (bounds.big ? 0.92 : 0.84);
-    const layerDepth = bounds.big ? 0.026 : 0.016;
-    const layerGap = bounds.big ? 0.036 : 0.023;
+    const layerDepth = bounds.homeDark ? (bounds.big ? 0.042 : 0.024) : bounds.big ? 0.026 : 0.016;
+    const layerGap = bounds.homeDark ? (bounds.big ? 0.058 : 0.034) : bounds.big ? 0.036 : 0.023;
     // Blender wolf parity: BA_MAT_WOLF_1..4 = linear 0.02 -> 0.82 with the DARK detail layer in
     // FRONT and the LIGHT silhouette at the back (#272727 front -> #bcbcbc back). Mandala pieces
     // (incl. Eclipse Mandala) take the warm gold base instead of grey.
     const isMandala = product.id.includes("mandala") || product.id.includes("eclipse");
-    const back = new THREE.Color(isMandala ? 0xb6a271 : 0xbcbcbc);
-    const front = new THREE.Color(0x272727);
+    const back = new THREE.Color(bounds.homeDark ? (isMandala ? 0x3d2c17 : 0x211f1d) : isMandala ? 0xb6a271 : 0xbcbcbc);
+    const front = new THREE.Color(bounds.homeDark ? (isMandala ? 0x0d0a06 : 0x0b0a09) : 0x272727);
 
     // Detect the solid full-canvas backing sheet (a plain rectangle = very few path commands)
     // and force it to the BACK whatever its file index — otherwise a mid/front backing sheet
@@ -925,13 +1212,14 @@ export class GalleryScene {
     const maxDepth = Math.max(1, svgTexts.length - 1);
 
     svgTexts.forEach((svgText, layerIndex) => {
+      if (bounds.homeDark && isMandala && hasBacking && layerIndex === backIndex) return;
       const parsed = this.svgLoader.parse(svgText);
       const depthIndex = depthOf[layerIndex];
       const tint = depthIndex / maxDepth;
       const material = new THREE.MeshStandardMaterial({
         color: new THREE.Color().lerpColors(back, front, tint),
-        roughness: 0.52,
-        metalness: 0.05,
+        roughness: bounds.homeDark ? 0.4 : 0.52,
+        metalness: bounds.homeDark ? 0.12 : 0.05,
         side: THREE.DoubleSide,
       });
 
@@ -995,10 +1283,15 @@ export class GalleryScene {
     if (!this.svgTextCache.has(path)) {
       this.svgTextCache.set(
         path,
-        fetch(path).then((response) => {
-          if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-          return response.text();
-        }),
+        fetch(path)
+          .then((response) => {
+            if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+            return response.text();
+          })
+          .then((svgText) => {
+            this.svgResolvedCache.set(path, svgText);
+            return svgText;
+          }),
       );
     }
     return this.svgTextCache.get(path);
@@ -1010,9 +1303,9 @@ export class GalleryScene {
     const depth = bounds.big ? 0.078 : 0.048;
     // BA_MAT_BLACK_WOOD: linear (0.03, 0.025, 0.022) -> #302c29, rough 0.55.
     const material = new THREE.MeshStandardMaterial({
-      color: 0x302c29,
-      roughness: 0.55,
-      metalness: 0,
+      color: bounds.homeDark ? 0x090807 : 0x302c29,
+      roughness: bounds.homeDark ? 0.42 : 0.55,
+      metalness: bounds.homeDark ? 0.12 : 0,
       side: THREE.DoubleSide,
     });
     const group = new THREE.Group();
@@ -1023,9 +1316,7 @@ export class GalleryScene {
     fallback.receiveShadow = true;
     group.add(fallback);
 
-    fetch(product.image)
-      .then((response) => response.text())
-      .then((svgText) => {
+    const buildSvg = (svgText) => {
         const data = this.svgLoader.parse(svgText);
         const content = new THREE.Group();
 
@@ -1063,19 +1354,35 @@ export class GalleryScene {
         group.remove(fallback);
         fallback.geometry.dispose();
         group.add(content);
-      })
-      .catch((error) => {
+    };
+
+    const cachedSvg = this.svgResolvedCache.get(product.image);
+    if (cachedSvg) {
+      buildSvg(cachedSvg);
+    } else {
+      this.loadSvgText(product.image).then(buildSvg).catch((error) => {
         console.warn(`[BA] Could not build SVG mesh for ${product.image}`, error);
       });
+    }
 
     return group;
   }
 
   createObjectProduct(product, bounds) {
     const fallback = this.createObjectFallback(product, bounds);
-    if (!product.model || !bounds.big) return fallback;
+    // Every 3D Object display — hero, grid array, viewer — loads its real decimated STL (D38).
+    // The procedural shapes are only a brief stand-in while the STL streams in; a `!bounds.big`
+    // early-return here once left ALL array/collection bays as stand-ins (the "disappeared
+    // meshes" regression) — never reintroduce it.
+    if (!product.model) return fallback;
 
     const group = new THREE.Group();
+    const cachedGeometry = this.stlResolvedCache.get(product.model);
+    if (cachedGeometry) {
+      disposeObject3D(fallback);
+      group.add(this.createStlMesh(product, bounds, cachedGeometry));
+      return group;
+    }
     group.add(fallback);
     this.loadStlGeometry(product.model)
       .then((geometry) => {
@@ -1092,10 +1399,10 @@ export class GalleryScene {
 
   createObjectFallback(product, bounds) {
     const group = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x080807, roughness: 0.46, metalness: 0.18 });
+    const mat = new THREE.MeshStandardMaterial({ color: bounds.homeDark ? 0x050403 : 0x080807, roughness: 0.4, metalness: 0.2 });
     const gold = new THREE.MeshStandardMaterial({ color: 0x8f6730, roughness: 0.5, metalness: 0.4 });
-    // Small 3D previews need extra recess clearance because procedural tails, legs, and bases
-    // can project toward the jambs when the category camera is angled.
+    // Small 3D previews stay conservative because procedural tails, legs, and bases project wider
+    // when the category camera is angled.
     const scale = bounds.big ? 1.0 : 0.42;
 
     if (product.shape === "panther") {
@@ -1164,6 +1471,11 @@ export class GalleryScene {
 
     group.scale.setScalar(scale);
     group.position.y = product.shape === "panther" ? -0.18 : -0.04;
+    if (bounds.restY !== undefined) {
+      // Match the STL placement contract: stand-in rests on the shelf top, never through it.
+      const box = new THREE.Box3().setFromObject(group);
+      if (Number.isFinite(box.min.y)) group.position.y += bounds.restY - box.min.y;
+    }
     return group;
   }
 
@@ -1171,9 +1483,9 @@ export class GalleryScene {
     const geometry = sourceGeometry.clone();
     geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({
-      color: product.materialColor ?? 0x302c29,
-      roughness: 0.5,
-      metalness: 0.04,
+      color: bounds.homeDark ? 0x070605 : product.materialColor ?? 0x302c29,
+      roughness: bounds.homeDark ? 0.38 : 0.5,
+      metalness: bounds.homeDark ? 0.16 : 0.04,
     });
     const mesh = new THREE.Mesh(geometry, material);
     const rotation = product.modelRotation ?? [-Math.PI / 2, 0, 0];
@@ -1194,7 +1506,13 @@ export class GalleryScene {
     const target = Math.min(bounds.width, bounds.height) * (product.modelFit ?? 0.72);
     const scale = maxDimension > 0 ? target / maxDimension : 1;
     wrapper.scale.setScalar(scale);
-    wrapper.position.y = product.modelLift ?? -0.05;
+    if (bounds.restY !== undefined) {
+      // Grid/array bays: rest the scaled mesh bottom exactly on the shelf top instead of
+      // using the hero-tuned modelLift (which assumes the big-bay shelf geometry).
+      wrapper.position.y = bounds.restY - box.min.y * scale;
+    } else {
+      wrapper.position.y = product.modelLift ?? -0.05;
+    }
     return wrapper;
   }
 
@@ -1203,7 +1521,15 @@ export class GalleryScene {
       this.stlCache.set(
         path,
         new Promise((resolve, reject) => {
-          this.stlLoader.load(path, resolve, undefined, reject);
+          this.stlLoader.load(
+            path,
+            (geometry) => {
+              this.stlResolvedCache.set(path, geometry);
+              resolve(geometry);
+            },
+            undefined,
+            reject,
+          );
         }),
       );
     }
@@ -1285,9 +1611,13 @@ export class GalleryScene {
 
   loadTexture(path) {
     if (this.textureCache.has(path)) return this.textureCache.get(path);
-    const texture = this.textureLoader.load(path);
+    let texture;
+    const readyPromise = new Promise((resolve, reject) => {
+      texture = this.textureLoader.load(path, () => resolve(texture), undefined, reject);
+    });
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
+    texture.userData.readyPromise = readyPromise;
     this.textureCache.set(path, texture);
     return texture;
   }
@@ -1304,10 +1634,64 @@ export class GalleryScene {
       ctx.fillStyle = Math.random() > 0.5 ? `rgba(74,60,42,${alpha})` : `rgba(248,228,196,${alpha})`;
       ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, Math.random() * 2 + 0.5, Math.random() * 2 + 0.5);
     }
+    for (let i = 0; i < 520; i += 1) {
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      const length = 5 + Math.random() * 22;
+      ctx.strokeStyle = Math.random() > 0.45 ? "rgba(78,58,35,0.11)" : "rgba(255,237,205,0.12)";
+      ctx.lineWidth = 0.7 + Math.random() * 1.4;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + length * 0.45, y + (Math.random() - 0.5) * 8, x + length, y + (Math.random() - 0.5) * 5);
+      ctx.stroke();
+    }
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set(5, 1.5);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
+  createHomeWallFinishTexture() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#80583b";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let i = 0; i < 7200; i += 1) {
+      const light = Math.random() > 0.48;
+      const alpha = 0.035 + Math.random() * 0.11;
+      ctx.fillStyle = light ? `rgba(245,215,174,${alpha})` : `rgba(57,35,22,${alpha})`;
+      const size = 0.6 + Math.random() * 2.8;
+      ctx.fillRect(Math.random() * 1024, Math.random() * 1024, size, size * (0.45 + Math.random()));
+    }
+
+    for (let i = 0; i < 900; i += 1) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 1024;
+      const length = 7 + Math.random() * 36;
+      ctx.strokeStyle = Math.random() > 0.52 ? "rgba(45,27,16,0.15)" : "rgba(255,228,188,0.13)";
+      ctx.lineWidth = 0.7 + Math.random() * 2.2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.bezierCurveTo(
+        x + length * 0.3,
+        y + (Math.random() - 0.5) * 12,
+        x + length * 0.72,
+        y + (Math.random() - 0.5) * 12,
+        x + length,
+        y + (Math.random() - 0.5) * 8,
+      );
+      ctx.stroke();
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(4.2, 1.55);
     texture.colorSpace = THREE.SRGBColorSpace;
     return texture;
   }
@@ -1388,18 +1772,112 @@ export class GalleryScene {
     canvas.width = 1024;
     canvas.height = 1024;
     const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#5f4632";
+
+    const base = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    base.addColorStop(0, "#040403");
+    base.addColorStop(0.38, "#11100d");
+    base.addColorStop(0.72, "#060504");
+    base.addColorStop(1, "#18130c");
+    ctx.fillStyle = base;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    for (let y = 0; y < canvas.height; y += 96) {
-      ctx.fillStyle = y % 192 === 0 ? "#684d36" : "#573f2c";
-      ctx.fillRect(0, y, canvas.width, 92);
-      ctx.fillStyle = "rgba(0,0,0,0.28)";
-      ctx.fillRect(0, y, canvas.width, 3);
+
+    for (let i = 0; i < 9000; i += 1) {
+      const warm = Math.random() > 0.62;
+      const alpha = 0.018 + Math.random() * 0.07;
+      ctx.fillStyle = warm ? `rgba(101,78,38,${alpha})` : `rgba(205,198,178,${alpha * 0.45})`;
+      const size = 0.8 + Math.random() * 3.8;
+      ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, size, size * (0.35 + Math.random() * 1.4));
     }
+
+    const slabW = 320;
+    const slabH = 320;
+    ctx.strokeStyle = "rgba(231,184,81,0.14)";
+    ctx.lineWidth = 1.2;
+    for (let x = 0; x <= canvas.width; x += slabW) {
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= canvas.height; y += slabH) {
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(canvas.width, y + 0.5);
+      ctx.stroke();
+    }
+
+    const drawVein = (gold = false) => {
+      const startX = Math.random() * canvas.width;
+      const startY = Math.random() * canvas.height;
+      const length = (gold ? 95 : 120) + Math.random() * (gold ? 260 : 340);
+      const angle = Math.random() * Math.PI * 2;
+      const segments = 4 + Math.floor(Math.random() * 4);
+      const points = [];
+      for (let i = 0; i <= segments; i += 1) {
+        const t = i / segments;
+        points.push({
+          x: startX + Math.cos(angle) * length * t + (Math.random() - 0.5) * 42,
+          y: startY + Math.sin(angle) * length * t + (Math.random() - 0.5) * 42,
+        });
+      }
+
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = gold ? "rgba(235,174,48,0.28)" : "rgba(216,211,198,0.08)";
+      ctx.lineWidth = gold ? 4.8 + Math.random() * 5.6 : 2.4 + Math.random() * 5.2;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      points.slice(1).forEach((point, index) => {
+        const previous = points[index];
+        ctx.quadraticCurveTo(
+          (previous.x + point.x) / 2 + (Math.random() - 0.5) * 20,
+          (previous.y + point.y) / 2 + (Math.random() - 0.5) * 20,
+          point.x,
+          point.y,
+        );
+      });
+      ctx.stroke();
+
+      ctx.strokeStyle = gold ? "rgba(255,220,118,0.9)" : "rgba(226,222,210,0.34)";
+      ctx.lineWidth = gold ? 1.1 + Math.random() * 1.8 : 0.45 + Math.random() * 1.1;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
+      ctx.stroke();
+
+      if (Math.random() > (gold ? 0.55 : 0.42)) {
+        const branchStart = points[1 + Math.floor(Math.random() * Math.max(1, points.length - 2))];
+        const branchAngle = angle + (Math.random() > 0.5 ? 1 : -1) * (0.62 + Math.random() * 0.9);
+        const branchLength = length * (0.18 + Math.random() * 0.22);
+        ctx.strokeStyle = gold ? "rgba(255,214,107,0.68)" : "rgba(221,218,207,0.22)";
+        ctx.lineWidth = gold ? 0.7 + Math.random() * 1.1 : 0.35 + Math.random() * 0.8;
+        ctx.beginPath();
+        ctx.moveTo(branchStart.x, branchStart.y);
+        ctx.quadraticCurveTo(
+          branchStart.x + Math.cos(branchAngle) * branchLength * 0.55 + (Math.random() - 0.5) * 18,
+          branchStart.y + Math.sin(branchAngle) * branchLength * 0.55 + (Math.random() - 0.5) * 18,
+          branchStart.x + Math.cos(branchAngle) * branchLength,
+          branchStart.y + Math.sin(branchAngle) * branchLength,
+        );
+        ctx.stroke();
+      }
+    };
+
+    for (let i = 0; i < 52; i += 1) drawVein(false);
+    for (let i = 0; i < 38; i += 1) drawVein(true);
+
+    for (let i = 0; i < 520; i += 1) {
+      ctx.fillStyle = `rgba(255,218,104,${0.2 + Math.random() * 0.5})`;
+      const r = 0.35 + Math.random() * 1.4;
+      ctx.beginPath();
+      ctx.arc(Math.random() * canvas.width, Math.random() * canvas.height, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(7, 2.4);
+    texture.repeat.set(7.2, 2.55);
     texture.colorSpace = THREE.SRGBColorSpace;
     return texture;
   }
@@ -1414,7 +1892,7 @@ export class GalleryScene {
     const front = new THREE.RectAreaLight(FRONT_FILL_COLOR, 3.4, 10, 2.5);
     front.position.set(-0.9, 2.6, 7.0);
     front.lookAt(-0.9, 1.5, 0);
-    // Broad floor wash so the wood reads warm instead of falling to black.
+    // Broad floor wash so the black marble keeps readable gold veining instead of falling flat.
     const floorWash = new THREE.RectAreaLight(FRONT_FILL_COLOR, 1.6, 14, 4);
     floorWash.position.set(2.6, 3.4, 3.2);
     floorWash.lookAt(2.6, 0, 3.1);
@@ -1505,6 +1983,7 @@ export class GalleryScene {
     });
     this.canvas.addEventListener("pointerleave", () => {
       this.hoveredEntry = null;
+      this.setHoveredHomeZone(null);
       this.canvas.style.cursor = "";
     });
     this.canvas.addEventListener("pointerup", (event) => {
@@ -1518,7 +1997,7 @@ export class GalleryScene {
       this.raycaster.setFromCamera(this.pointer, this.camera);
       const hit = this.raycaster.intersectObjects(this.clickable, true).find((item) => item.object.userData.action);
       if (!hit) return;
-      this.pendingSelectionBay = findBayAncestor(hit.object);
+      this.pendingSelectionBay = findTransitionAncestor(hit.object);
       const { action, categoryId, productId } = hit.object.userData;
       if (action === "category") this.onCategorySelect(categoryId);
       if (action === "subcollection") this.onSubcollectionSelect(hit.object.userData.subcollectionId);
@@ -1562,6 +2041,17 @@ export class GalleryScene {
   }
 
   updateHover(event) {
+    if (this.state?.mode === "home" && this.homeZones) {
+      this.pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+      this.pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const hit = this.raycaster.intersectObjects(this.homeClickTargets, false)[0];
+      const entry = hit ? this.homeZones.get(hit.object.userData.categoryId) ?? null : null;
+      this.setHoveredHomeZone(entry);
+      this.canvas.style.cursor = entry ? "pointer" : "";
+      return;
+    }
+    this.setHoveredHomeZone(null);
     if (this.state?.mode !== "category" || !this.gridBays) {
       this.hoveredEntry = null;
       return;
@@ -1576,6 +2066,13 @@ export class GalleryScene {
     this.canvas.style.cursor = this.hoveredEntry ? "pointer" : "";
   }
 
+  setHoveredHomeZone(entry) {
+    if (entry === this.hoveredHomeZone) return;
+    this.hoveredHomeZone = entry;
+    if (entry) this.prepareCategory(entry.group.userData.categoryId);
+    this.onCategoryPreview?.(entry?.group.userData.categoryId ?? null);
+  }
+
   resize() {
     const width = window.innerWidth;
     const height = window.innerHeight;
@@ -1585,8 +2082,13 @@ export class GalleryScene {
     this.camera.updateProjectionMatrix();
     // fov + aspect are final above — refit the home dolly so the wall never clips at narrow
     // landscape aspects. Boot (no state yet) starts on home framing; category/viewer stay put.
-    if (!this.state || this.state.mode === "home") {
+    if (!this.state || this.state.mode === "home" || this.state.mode === "intro") {
+      this.targetCamera.x = homeCameraX(this.camera.aspect);
       this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
+      this.targetLook.x = this.targetCamera.x;
+      this.setIntroLayout();
+      this.setHoveredHomeZone(null);
+      this.canvas.style.cursor = "";
     } else if (this.state.mode === "category") {
       this.setCategoryCamera();
       this.updateCategoryGrid();
@@ -1604,6 +2106,17 @@ export class GalleryScene {
       this.look.lerp(this.targetLook, lookEase);
     }
     if (this.viewerProduct) this.viewerProduct.rotation.y += (this.viewerOrbit - this.viewerProduct.rotation.y) * 0.12;
+    if (this.homeZones) {
+      this.homeZones.forEach((entry) => {
+        const active = entry === this.hoveredHomeZone && this.state?.mode === "home" && !this.transition;
+        const revealScale = smooth01(entry.revealProgress ?? 1);
+        const targetScale = revealScale * (active ? 1.065 : 1);
+        const targetZ = active ? 0.2 : 0;
+        entry.group.visible = revealScale > 0.01;
+        entry.group.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.14);
+        entry.group.position.z += (targetZ - entry.group.position.z) * 0.16;
+      });
+    }
     if (this.gridBays) {
       this.gridBays.forEach((entry) => {
         const edgeScale = entry.edgeScale ?? 1;
@@ -1638,37 +2151,53 @@ export class GalleryScene {
     });
 
     if (transition.source && transition.sourceStart && transition.sourceEnd) {
-      const move = smooth01((elapsed - 0.2) / 0.68);
-      const detach = smooth01(elapsed / 0.2) * (1 - move);
+      const move = smooth01((elapsed - 0.18) / 0.67);
+      const detach = smooth01(elapsed / 0.18) * (1 - move);
       transition.source.position.lerpVectors(transition.sourceStart, transition.sourceEnd, move);
       transition.source.position.z += detach * 0.22 + Math.sin(move * Math.PI) * 0.2;
       transition.source.scale.lerpVectors(transition.sourceStartScale, transition.sourceEndScale, move);
-      transition.source.visible = elapsed < 0.9;
+      transition.source.visible = this.state?.mode === "category" ? elapsed < transition.duration - 0.08 : elapsed < 0.9;
     }
 
     if (transition.destinationBay) {
-      const reveal = smooth01((elapsed - 0.38) / 0.42);
+      const reveal = smooth01((elapsed - 0.82) / 0.34);
       transition.destinationBay.visible = reveal > 0;
       transition.destinationBay.scale.setScalar(Math.max(0.001, 0.9 + reveal * 0.1));
     }
 
     if (transition.destinationProduct) {
-      transition.destinationProduct.visible = elapsed >= 0.9;
+      transition.destinationProduct.visible = this.state?.mode === "category" ? elapsed >= transition.duration - 0.08 : elapsed >= 0.9;
     }
 
-    if (this.categoryDescription) {
-      const reveal = smooth01((elapsed - 0.78) / 0.45);
-      this.categoryDescription.visible = reveal > 0;
-      this.categoryDescription.scale.setScalar(0.94 + reveal * 0.06);
+    if (this.state?.mode === "category" && this.categoryDescription) {
+      const glyphs = this.categoryDescription.userData.revealGlyphs ?? [];
+      const interval = Math.min(0.012, 0.85 / Math.max(1, glyphs.length));
+      glyphs.forEach((glyph, index) => {
+        const reveal = smooth01((elapsed - 1.02 - index * interval) / 0.12);
+        glyph.visible = reveal > 0;
+        glyph.scale.copy(glyph.userData.revealBaseScale).multiplyScalar(0.78 + reveal * 0.22);
+        glyph.position.copy(glyph.userData.revealBasePosition);
+        glyph.position.z += (1 - reveal) * 0.055;
+      });
+      const dividerAt = 1.02 + this.categoryDescription.userData.titleGlyphCount * interval + 0.08;
+      if (this.categoryDescription.userData.revealDivider) {
+        this.categoryDescription.userData.revealDivider.visible = elapsed >= dividerAt;
+      }
     }
 
-    const cameraProgress = smooth01((elapsed - 0.88) / 1.32);
+    const cameraProgress = smooth01((elapsed - 0.86) / 0.72);
     this.camera.position.lerpVectors(transition.cameraStart, transition.cameraEnd, cameraProgress);
     this.look.lerpVectors(transition.lookStart, transition.lookEnd, cameraProgress);
 
     if (this.state?.mode === "category" && this.gridBays) {
       this.gridBays.forEach((entry) => {
-        entry.revealProgress = THREE.MathUtils.clamp((elapsed - 1.16 - entry.revealIndex * 0.075) / 0.34, 0, 1);
+        entry.revealProgress = THREE.MathUtils.clamp((elapsed - 2.0 - entry.revealIndex * 0.045) / 0.25, 0, 1);
+      });
+    }
+
+    if (this.state?.mode === "home" && this.homeZones) {
+      this.homeZones.forEach((entry) => {
+        entry.revealProgress = THREE.MathUtils.clamp((elapsed - 0.34 - entry.revealIndex * 0.14) / 0.34, 0, 1);
       });
     }
 
@@ -1728,10 +2257,10 @@ function gridEdgeScale(visibleX, rightEdge) {
   return Math.max(0.01, Math.min(leftScale, rightScale));
 }
 
-function findBayAncestor(object) {
+function findTransitionAncestor(object) {
   let current = object;
   while (current) {
-    if (current.userData?.isBayPrefab) return current;
+    if (current.userData?.isBayPrefab || current.userData?.isHomeZone) return current;
     current = current.parent;
   }
   return null;

@@ -3,6 +3,13 @@
 Preview-only visual references for the Black Aesthetics 3D storefront.
 These do not bypass the Blender approval gate.
 
+## Active Intro Direction — D48
+
+- `intro-home-reference-v1.png` — initial editorial Home target.
+- Only the BA wall mark, `OBJECTS WITH PRESENCE.`, concise About Us copy, and a bottom-center
+  `BROWSE STORE` action appear on the wall.
+- The current D47 product wall becomes Browse Home and loads after that action.
+
 ## Active Home Direction — D47 (IMPORTANT)
 
 - `home-view-revision-bayless-v1.png` — **approved visual target for the next HOME revision**.
