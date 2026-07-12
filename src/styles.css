@@ -110,6 +110,21 @@ input:focus-visible {
   pointer-events: none;
 }
 
+#hud-root.is-transitioning .hud-top,
+#hud-root.is-transitioning .category-rail,
+#hud-root.is-transitioning .category-scroll-controls,
+#hud-root.is-transitioning .collection-context,
+#hud-root.is-transitioning .product-panel,
+#hud-root.is-transitioning .viewer-controls,
+#hud-root.is-transitioning .checkout-panel,
+#hud-root.is-transitioning .search-panel {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition:
+    opacity 180ms ease,
+    visibility 0s linear 180ms;
+}
+
 .hud-top {
   position: fixed;
   top: 28px;
@@ -543,6 +558,19 @@ input:focus-visible {
   border-color: rgba(255, 247, 231, 0.72);
   background: rgba(255, 255, 255, 0.11);
   color: #fff8e9;
+}
+
+.layer-expand-button {
+  display: inline-grid;
+  place-items: center;
+  min-height: 40px;
+  margin-top: 16px;
+  border: 1px solid rgba(255, 232, 190, 0.44);
+  border-radius: 8px;
+  background: rgba(216, 173, 103, 0.14);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 760;
 }
 
 .quantity-row,

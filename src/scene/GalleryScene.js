@@ -58,6 +58,13 @@ const TRACK_STEM_X = [-5.2, -2.6, 0, 2.6, 5.2, 7.8, 10.4];
 // Warm key (1, 0.72, 0.45) linear -> #ffddb3. Never eyeball these — recompute from the .blend.
 const LIGHT_COLOR = 0xffddb3;
 const FRONT_FILL_COLOR = 0xffeacb;
+const PRODUCT_WALL_CLEARANCE = 0.045;
+const VIEWER_WALL_CLEARANCE = 0.08;
+const PRODUCT_LATCH_DISTANCE = 0.82;
+const LAYER_ASSEMBLE_LATCH_DISTANCE = 0.58;
+const LAYER_ASSEMBLE_INTERVAL = 0.22;
+const LAYER_ASSEMBLE_DURATION = 0.58;
+const LAYER_EXPAND_GAP = 0.075;
 
 const WALL_FONT = new FontLoader().parse(fontData);
 RectAreaLightUniformsLib.init();
@@ -81,6 +88,11 @@ export class GalleryScene {
     this.stlCache = new Map();
     this.stlResolvedCache = new Map();
     this.categoryPreparationCache = new Map();
+    this.textGeometryCache = new Map();
+    this.assetPrewarmQueue = [];
+    this.assetPrewarmStarted = false;
+    this.idleTaskQueue = [];
+    this.idleTaskScheduled = false;
     this.lightPoolTexture = null;
     this.clickable = [];
     this.pointer = new THREE.Vector2();
@@ -99,13 +111,19 @@ export class GalleryScene {
     this.viewerOrbit = 0;
     this.hoveredEntry = null;
     this.hoveredHomeZone = null;
+    this.pendingHoverPoint = null;
+    this.hoverFramePending = false;
     this.gridTrack = null;
+    this.pendingGridBuilds = new Map();
+    this.gridBuildScheduled = false;
     this.transition = null;
     this.pendingSelectionBay = null;
     this.categoryCameraIsFrontal = false;
+    this.layerStackAnimations = new Set();
+    this.layersExpanded = false;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.02;
@@ -121,20 +139,24 @@ export class GalleryScene {
 
     this.materials = this.createMaterials();
     this.architecture = new THREE.Group();
+    this.atmosphereGroup = new THREE.Group();
+    this.logoGroup = new THREE.Group();
     this.introGroup = new THREE.Group();
     this.homeGroup = new THREE.Group();
     this.categoryGroup = new THREE.Group();
     this.viewerGroup = new THREE.Group();
     this.transitionGroup = new THREE.Group();
 
-    this.scene.add(this.architecture, this.introGroup, this.homeGroup, this.categoryGroup, this.viewerGroup, this.transitionGroup);
+    this.scene.add(this.architecture, this.atmosphereGroup, this.logoGroup, this.introGroup, this.homeGroup, this.categoryGroup, this.viewerGroup, this.transitionGroup);
     this.createArchitecture();
+    this.createSharedAtmosphere();
     this.createIntro();
     this.createHome();
     this.createLights();
     this.bindEvents();
     this.resize();
     this.animate();
+    this.scheduleAssetPrewarm();
   }
 
   setState(state) {
@@ -149,9 +171,13 @@ export class GalleryScene {
     // its own travel clone so the mesh can leave the wall without appearing twice.
     const sourceWasVisible = sourceProduct?.visible;
     if (sourceProduct) sourceProduct.visible = false;
-    // Browse Home clears instantly around the selected hero. Cloning the full product wall adds
-    // no useful information and can briefly expose large transparent/background planes.
-    const outgoingClone = previousState && previousState.mode !== "home" ? this.cloneInWorld(this.activeGroup(previousState.mode)) : null;
+    // Heavy scenes clear around the selected hero instead of cloning whole grids/walls.
+    // The traveling source clone preserves continuity without duplicating dozens of meshes.
+    const introToHome = previousState?.mode === "intro" && state.mode === "home";
+    const outgoingClone =
+      previousState && !introToHome
+        ? this.cloneInWorld(this.activeGroup(previousState.mode))
+        : null;
     if (sourceProduct) sourceProduct.visible = sourceWasVisible;
     this.pendingSelectionBay = null;
     this.lastSignature = signature;
@@ -161,6 +187,7 @@ export class GalleryScene {
     this.homeGroup.visible = state.mode === "home";
     this.categoryGroup.visible = state.mode === "category";
     this.viewerGroup.visible = state.mode === "viewer";
+    this.logoGroup.visible = state.mode === "intro" || state.mode === "home";
 
     if (state.mode === "intro") {
       this.clickable = [];
@@ -170,6 +197,7 @@ export class GalleryScene {
       this.targetLook.copy(HOME_LOOK);
       this.targetLook.x = this.targetCamera.x;
       this.setIntroLayout();
+      this.resetHomeGalleryReveal();
       this.startTransition(previousState, outgoingClone, null, null, null);
       return;
     }
@@ -183,11 +211,11 @@ export class GalleryScene {
       this.targetLook.copy(HOME_LOOK);
       this.targetLook.x = this.targetCamera.x;
       if (previousState?.mode === "intro") {
-        [...this.homeZones.values()].forEach((entry, index) => {
-          entry.revealProgress = 0;
-          entry.revealIndex = index;
-          entry.group.scale.setScalar(0.01);
-        });
+        this.introGroup.visible = true;
+        this.prepareHomeGalleryReveal();
+      } else {
+        this.setLogoPlacement(this.galleryLogoPlacement());
+        this.completeHomeGalleryReveal();
       }
       this.startTransition(
         previousState,
@@ -253,14 +281,7 @@ export class GalleryScene {
     if (!object) return null;
     object.updateWorldMatrix(true, true);
     const clone = object.clone(true);
-    clone.traverse((child) => {
-      if (child.geometry) child.geometry = child.geometry.clone();
-      if (child.material) {
-        child.material = Array.isArray(child.material)
-          ? child.material.map((material) => material.clone())
-          : child.material.clone();
-      }
-    });
+    clone.userData.usesSharedResources = true;
     const excluded = [];
     clone.traverse((child) => {
       if (child !== clone && child.userData?.excludeFromTransition && !child.parent?.userData?.excludeFromTransition) {
@@ -278,6 +299,7 @@ export class GalleryScene {
   startTransition(previousState, outgoing, source, destinationBay, destinationProduct) {
     if (!previousState) return;
     this.onInteractionLock?.(true);
+    const introToHome = previousState.mode === "intro" && this.state.mode === "home";
     const cameraEnd = this.targetCamera.clone();
     const lookEnd = this.targetLook.clone();
     const outgoingItems = outgoing ? this.collectOutgoingItems(outgoing) : [];
@@ -337,13 +359,18 @@ export class GalleryScene {
       elapsed: 0,
       startedAt: performance.now(),
       duration:
-        this.state.mode === "category"
-          ? 2.35 + Math.min(0.8, (this.gridBays?.size ?? 0) * 0.045)
+        introToHome
+          ? 1.65 + this.homeGalleryRevealItems.length * 0.26 + 0.9
+          : this.state.mode === "category"
+          ? 3.35 + Math.min(1.4, (this.gridBays?.size ?? 0) * 0.11)
           : this.state.mode === "viewer"
-            ? 2.15
+            ? 2.95
             : this.state.mode === "home"
-              ? 1.65
+              ? 2.7
               : 1.35,
+      introToHome,
+      logoStart: introToHome ? this.introLogoPlacement() : null,
+      logoEnd: introToHome ? this.galleryLogoPlacement() : null,
       outgoing,
       outgoingItems,
       source,
@@ -353,6 +380,7 @@ export class GalleryScene {
       sourceEndScale,
       destinationBay,
       destinationProduct,
+      destinationProductBasePosition: destinationProduct?.position.clone() ?? null,
       cameraStart: this.camera.position.clone(),
       cameraEnd,
       lookStart: this.look.clone(),
@@ -384,7 +412,7 @@ export class GalleryScene {
 
   finishTransition() {
     if (!this.transition) return;
-    const { outgoing, source, destinationBay, destinationProduct } = this.transition;
+    const { outgoing, source, destinationBay, destinationProduct, destinationProductBasePosition, introToHome } = this.transition;
     if (outgoing) {
       this.transitionGroup.remove(outgoing);
       disposeObject3D(outgoing);
@@ -397,7 +425,10 @@ export class GalleryScene {
       destinationBay.visible = true;
       destinationBay.scale.setScalar(1);
     }
-    if (destinationProduct) destinationProduct.visible = true;
+    if (destinationProduct) {
+      destinationProduct.visible = true;
+      if (destinationProductBasePosition) destinationProduct.position.copy(destinationProductBasePosition);
+    }
     if (this.categoryDescription) {
       this.categoryDescription.visible = true;
       this.categoryDescription.scale.setScalar(1);
@@ -419,6 +450,12 @@ export class GalleryScene {
       this.homeZones.forEach((entry) => {
         entry.revealProgress = 1;
       });
+    }
+    if (introToHome) {
+      this.introGroup.visible = false;
+      this.resetIntroCopy();
+      this.setLogoPlacement(this.galleryLogoPlacement());
+      this.completeHomeGalleryReveal();
     }
     this.transition = null;
     this.onInteractionLock?.(false);
@@ -470,6 +507,72 @@ export class GalleryScene {
     const preparation = Promise.allSettled(tasks).then(() => undefined);
     this.categoryPreparationCache.set(cacheKey, preparation);
     return preparation;
+  }
+
+  scheduleAssetPrewarm() {
+    if (this.assetPrewarmStarted) return;
+    this.assetPrewarmStarted = true;
+    const seen = new Set();
+    const pushProduct = (product) => {
+      if (!product || seen.has(product.id)) return;
+      seen.add(product.id);
+      this.assetPrewarmQueue.push(product);
+    };
+
+    this.categories.forEach((category) => {
+      pushProduct(getHeroProduct(category));
+      category.subcollections?.forEach((subcollection) => {
+        pushProduct(getSubcollectionHeroProduct(category, subcollection.id));
+      });
+    });
+    this.categories.forEach((category) => category.products.forEach(pushProduct));
+
+    window.setTimeout(() => this.scheduleIdleTask(() => this.pumpAssetPrewarm(), 700), 700);
+  }
+
+  pumpAssetPrewarm() {
+    let count = 0;
+    while (this.assetPrewarmQueue.length && count < 3) {
+      this.prewarmProductAssets(this.assetPrewarmQueue.shift());
+      count += 1;
+    }
+    if (this.assetPrewarmQueue.length) {
+      this.scheduleIdleTask(() => this.pumpAssetPrewarm(), 700);
+    }
+  }
+
+  prewarmProductAssets(product) {
+    if (!product) return;
+    if (product.kind === "wall-art" && product.image) {
+      this.loadSvgText(product.image).catch(() => {});
+    } else if (product.kind === "digital" && product.image) {
+      this.loadTexture(product.image);
+    } else if (product.kind === "layered") {
+      product.layers?.forEach((path) => this.loadSvgText(path).catch(() => {}));
+    } else if (product.kind === "object" && product.model) {
+      this.loadStlGeometry(product.model).catch(() => {});
+    }
+  }
+
+  scheduleIdleTask(task, timeout = 250) {
+    this.idleTaskQueue.push(task);
+    if (this.idleTaskScheduled) return;
+    this.requestIdleDrain(timeout);
+  }
+
+  requestIdleDrain(timeout = 250) {
+    this.idleTaskScheduled = true;
+    const run = () => {
+      this.idleTaskScheduled = false;
+      const next = this.idleTaskQueue.shift();
+      if (next) next();
+      if (this.idleTaskQueue.length) this.requestIdleDrain(timeout);
+    };
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(run, { timeout });
+    } else {
+      window.setTimeout(run, Math.min(timeout, 120));
+    }
   }
 
   createMaterials() {
@@ -563,28 +666,43 @@ export class GalleryScene {
     }
   }
 
-  createIntro() {
+  createSharedAtmosphere() {
     const wallTone = new THREE.Mesh(
       new THREE.PlaneGeometry(18, 3.6),
       new THREE.MeshBasicMaterial({ map: this.createHomeWallFinishTexture(), transparent: true, opacity: 0.34, depthWrite: false }),
     );
     wallTone.position.set(2.6, 1.8, 0.002);
     wallTone.userData.excludeFromTransition = true;
-    this.introGroup.add(wallTone);
+    this.atmosphereGroup.add(wallTone);
 
+    [-4.2, -2.8, -1.35, 0.05, 1.5, 2.9, 4.05].forEach((x) => {
+      const fixture = this.createHomeFixture(x);
+      const pool = this.createWallLightPool(x, 2.15, 1.45, 2.75, 0.16);
+      const key = this.createHomeKeyLight(x);
+      fixture.userData.excludeFromTransition = true;
+      pool.userData.excludeFromTransition = true;
+      key.userData.excludeFromTransition = true;
+      this.atmosphereGroup.add(fixture, pool, key);
+    });
+  }
+
+  createIntro() {
     const logo = this.createLogoPlane(2.18, 2.18);
     logo.position.set(-3.65, 1.72, 0.045);
-    this.introLogo = logo;
-    this.introGroup.add(logo, this.createWallLightPool(-3.65, 1.82, 2.65, 3.05, 0.2));
+    this.wallLogo = logo;
+    this.logoPool = this.createWallLightPool(-3.65, 1.82, 2.65, 3.05, 0.2);
+    this.logoGroup.add(this.logoPool, logo);
 
     const copyGroup = new THREE.Group();
     this.introCopy = copyGroup;
+    this.introCopyItems = [];
     const statement = this.createExtrudedText("OBJECTS WITH PRESENCE.", 0.18, 0.024, this.materials.wallText);
     statement.position.set(-0.95, 2.15, 0.045);
     const statementBox = statement.geometry.boundingBox;
     const statementWidth = statementBox.max.x - statementBox.min.x;
     if (statementWidth > 4.55) statement.scale.setScalar(4.55 / statementWidth);
     copyGroup.add(statement);
+    this.registerIntroCopyItem(statement);
 
     const aboutLines = [
       "BLACK AESTHETICS CREATES DISTINCTIVE WALL ART,",
@@ -595,34 +713,76 @@ export class GalleryScene {
       const text = this.createExtrudedText(line, 0.068, 0.016, this.materials.wallText);
       text.position.set(-0.92, 1.62 - index * 0.18, 0.04);
       copyGroup.add(text);
+      this.registerIntroCopyItem(text);
     });
     this.introGroup.add(copyGroup);
 
-    [-4.5, -2.9, -1.3, 0.3, 1.9, 3.5].forEach((x) => {
-      const fixture = this.createHomeFixture(x);
-      const pool = this.createWallLightPool(x, 2.12, 1.55, 2.8, 0.15);
-      const key = this.createHomeKeyLight(x);
-      fixture.userData.excludeFromTransition = true;
-      pool.userData.excludeFromTransition = true;
-      key.userData.excludeFromTransition = true;
-      this.introGroup.add(fixture, pool, key);
-    });
   }
 
   setIntroLayout() {
-    if (!this.introLogo || !this.introCopy) return;
+    if (!this.wallLogo || !this.introCopy) return;
     const portrait = this.camera.aspect < 0.78;
     if (portrait) {
-      this.introLogo.position.set(-4, 2.2, 0.045);
-      this.introLogo.scale.setScalar(0.72);
+      this.setLogoPlacement(this.introLogoPlacement());
       this.introCopy.position.set(-3.9, -0.05, 0);
       this.introCopy.scale.setScalar(0.5);
+      this.resetIntroCopy();
       return;
     }
-    this.introLogo.position.set(-3.65, 1.72, 0.045);
-    this.introLogo.scale.setScalar(1);
+    this.setLogoPlacement(this.introLogoPlacement());
     this.introCopy.position.set(0, 0, 0);
     this.introCopy.scale.setScalar(1);
+    this.resetIntroCopy();
+  }
+
+  registerIntroCopyItem(mesh) {
+    mesh.userData.introBasePosition = mesh.position.clone();
+    mesh.userData.introBaseScale = mesh.scale.clone();
+    this.introCopyItems.push(mesh);
+  }
+
+  resetIntroCopy() {
+    this.introCopyItems?.forEach((item) => {
+      item.visible = true;
+      item.position.copy(item.userData.introBasePosition);
+      item.scale.copy(item.userData.introBaseScale);
+    });
+  }
+
+  introLogoPlacement() {
+    if (this.camera.aspect < 0.78) {
+      return {
+        position: new THREE.Vector3(-4, 2.2, 0.045),
+        scale: new THREE.Vector3(0.72, 0.72, 0.72),
+        poolPosition: new THREE.Vector3(-4, 2.18, 0.02),
+        poolScale: new THREE.Vector3(0.78, 0.78, 1),
+      };
+    }
+    return {
+      position: new THREE.Vector3(-3.65, 1.72, 0.045),
+      scale: new THREE.Vector3(1, 1, 1),
+      poolPosition: new THREE.Vector3(-3.65, 1.82, 0.02),
+      poolScale: new THREE.Vector3(1, 1, 1),
+    };
+  }
+
+  galleryLogoPlacement() {
+    return {
+      position: new THREE.Vector3(-4.2, 1.78, 0.04),
+      scale: new THREE.Vector3(0.624, 0.624, 0.624),
+      poolPosition: new THREE.Vector3(-4.2, 1.76, 0.02),
+      poolScale: new THREE.Vector3(0.58, 0.88, 1),
+    };
+  }
+
+  setLogoPlacement(placement) {
+    this.logoGroup.visible = true;
+    this.wallLogo.position.copy(placement.position);
+    this.wallLogo.scale.copy(placement.scale);
+    if (this.logoPool) {
+      this.logoPool.position.copy(placement.poolPosition);
+      this.logoPool.scale.copy(placement.poolScale);
+    }
   }
 
   createHome() {
@@ -630,18 +790,15 @@ export class GalleryScene {
     this.homeBays = new Map();
     this.homeProducts = new Map();
     this.homeZones = new Map();
+    this.homeGalleryRevealItems = [];
 
-    const wallTone = new THREE.Mesh(
-      new THREE.PlaneGeometry(18, 3.6),
-      new THREE.MeshBasicMaterial({ map: this.createHomeWallFinishTexture(), transparent: true, opacity: 0.34, depthWrite: false }),
-    );
-    wallTone.position.set(2.6, 1.8, 0.002);
-    wallTone.userData.excludeFromTransition = true;
-    this.homeGroup.add(wallTone);
-
-    const logo = this.createLogoPlane(1.36, 1.36);
-    logo.position.set(-4.2, 1.78, 0.04);
-    this.homeGroup.add(this.createWallLightPool(-4.2, 1.76, 1.55, 2.7, 0.18), logo);
+    if (!this.wallLogo) {
+      const logo = this.createLogoPlane(2.18, 2.18);
+      logo.position.set(-3.65, 1.72, 0.045);
+      this.wallLogo = logo;
+      this.logoPool = this.createWallLightPool(-3.65, 1.82, 2.65, 3.05, 0.2);
+      this.logoGroup.add(this.logoPool, logo);
+    }
 
     const wall = this.createHomeZone("wall-art", -2.45, 2.18, 2.52);
     this.addHomeProduct(wall, "wall-elegant-horse-head", { width: 1.86, height: 1.86, homeDark: true }, 0, 0.43, 0.09, true);
@@ -669,16 +826,6 @@ export class GalleryScene {
     const panther = this.addHomeProduct(objects, "object-panther", { width: 0.92, height: 0.64, big: true, homeDark: true }, 0, 0.64, 0.76, true, 2.75);
     panther.rotation.y = Math.PI / 2;
 
-    [-4.2, -2.8, -1.35, 0.05, 1.5, 2.9, 4.05].forEach((x) => {
-      const fixture = this.createHomeFixture(x);
-      const pool = this.createWallLightPool(x, 2.15, 1.45, 2.75, 0.16);
-      const key = this.createHomeKeyLight(x);
-      fixture.userData.excludeFromTransition = true;
-      pool.userData.excludeFromTransition = true;
-      key.userData.excludeFromTransition = true;
-      this.homeGroup.add(fixture, pool, key);
-    });
-
     this.clickable = [...this.homeClickTargets];
   }
 
@@ -692,19 +839,63 @@ export class GalleryScene {
     zone.add(hit);
     this.homeClickTargets.push(hit);
     this.homeBays.set(categoryId, zone);
-    this.homeZones.set(categoryId, { group: zone, hit });
+    this.homeZones.set(categoryId, { group: zone, hit, products: [] });
     this.homeGroup.add(zone);
     return zone;
   }
 
   addHomeProduct(zone, productId, bounds, x, y, z, transitionProduct = false, scale = 1) {
     const product = this.createProductDisplay(getProduct(productId).product, bounds);
-    product.position.set(x, y, z);
+    product.position.set(x, y, z + PRODUCT_WALL_CLEARANCE);
     product.scale.setScalar(scale);
     product.userData.transitionProduct = transitionProduct;
     zone.add(product);
     if (transitionProduct) this.homeProducts.set(zone.userData.categoryId, product);
+    const entry = this.homeZones.get(zone.userData.categoryId);
+    entry?.products.push({
+      object: product,
+      baseScale: product.scale.clone(),
+      basePosition: product.position.clone(),
+    });
     return product;
+  }
+
+  prepareHomeGalleryReveal() {
+    this.setLogoPlacement(this.introLogoPlacement());
+    this.homeGalleryRevealItems = [];
+    const order = ["wall-art", "digital-art", "layered-art", "3d-objects"];
+    order.forEach((categoryId) => {
+      const zone = this.homeZones.get(categoryId);
+      if (!zone) return;
+      zone.revealProgress = 1;
+      zone.group.visible = true;
+      zone.group.scale.setScalar(1);
+      zone.products.forEach((item) => {
+        item.object.visible = false;
+        item.object.position.copy(item.basePosition);
+        item.object.position.z += PRODUCT_LATCH_DISTANCE;
+        item.object.scale.setScalar(0.001);
+        this.homeGalleryRevealItems.push(item);
+      });
+    });
+  }
+
+  completeHomeGalleryReveal() {
+    this.homeZones?.forEach((entry) => {
+      entry.revealProgress = 1;
+      entry.group.visible = true;
+      entry.group.scale.setScalar(1);
+      entry.products.forEach((item) => {
+        item.object.visible = true;
+        item.object.position.copy(item.basePosition);
+        item.object.scale.copy(item.baseScale);
+      });
+    });
+  }
+
+  resetHomeGalleryReveal() {
+    this.completeHomeGalleryReveal();
+    this.homeGalleryRevealItems = [];
   }
 
   createHomeFixture(x) {
@@ -832,7 +1023,7 @@ export class GalleryScene {
     const isObjectCategory = category.id === "3d-objects";
     const bigProduct = this.createProductDisplay(lead, { width: 1.64, height: 1.92, big: true });
     bigProduct.userData.transitionProduct = true;
-    bigProduct.position.set(0, isObjectCategory ? 0.12 : 0, isObjectCategory ? 0.52 : 0.105);
+    bigProduct.position.set(0, isObjectCategory ? 0.12 : 0, (isObjectCategory ? 0.52 : 0.105) + PRODUCT_WALL_CLEARANCE);
     if (isObjectCategory) {
       bigBay.add(this.createFloatingShelf({ width: 1.82, depth: 0.72, thickness: 0.09, y: -0.3, z: 0.42 }));
     }
@@ -860,6 +1051,9 @@ export class GalleryScene {
         : SMALL_GRID;
     this.bigHit = bigHit;
     this.gridBays = new Map();
+    this.gridHitEntries = [];
+    this.gridHittables = [];
+    this.pendingGridBuilds.clear();
     this.maxScroll = Math.max(0, (Math.ceil(products.length / 2) - 4) * this.gridLayout.stepX);
     // Windowed virtualization: only the product bays near the scroll window are built (see
     // updateCategoryGrid). With 148 Wall Art products, eagerly building every bay (a fetch + SVG
@@ -896,7 +1090,7 @@ export class GalleryScene {
       ...(isObjectProduct ? { restY: 0.0325 } : {}),
     });
     display.userData.transitionProduct = true;
-    display.position.set(0, isObjectProduct ? 0.08 : 0, isObjectProduct ? 0.44 : 0.105);
+    display.position.set(0, isObjectProduct ? 0.08 : 0, (isObjectProduct ? 0.44 : 0.105) + PRODUCT_WALL_CLEARANCE);
     if (isObjectProduct) {
       bay.add(this.createFloatingShelf({ width: 0.76, depth: 0.5, thickness: 0.065, y: 0.08, z: 0.32 }));
     }
@@ -955,20 +1149,71 @@ export class GalleryScene {
       const visibleX = x - this.scrollOffset;
       const near = visibleX >= HERO_GRID_VANISH_X - GRID_EDGE_SCALE_DISTANCE && visibleX <= rightEdge + GRID_EDGE_SCALE_DISTANCE;
       if (near) {
-        const newlyBuilt = !this.gridBays.has(index);
-        if (newlyBuilt) this.gridBays.set(index, this.buildGridBay(item, index));
+        if (!this.gridBays.has(index)) {
+          this.queueGridBayBuild(item, index);
+          return;
+        }
         const entry = this.gridBays.get(index);
         entry.edgeScale = gridEdgeScale(visibleX, rightEdge);
-        if (newlyBuilt) entry.bay.scale.setScalar(entry.edgeScale);
         entry.hit.visible = entry.edgeScale > 0.45;
-      } else if (this.gridBays.has(index)) {
+      } else {
+        this.pendingGridBuilds.delete(index);
+        if (!this.gridBays.has(index)) return;
         const entry = this.gridBays.get(index);
         this.gridTrack.remove(entry.bay);
         this.disposeGridBay(entry.bay);
         this.gridBays.delete(index);
       }
     });
-    this.clickable = [this.bigHit, ...[...this.gridBays.values()].map((entry) => entry.hit)];
+    this.refreshGridHitTargets();
+  }
+
+  queueGridBayBuild(item, index) {
+    if (this.pendingGridBuilds.has(index)) return;
+    this.pendingGridBuilds.set(index, { item, index });
+    this.scheduleGridBuildDrain();
+  }
+
+  scheduleGridBuildDrain() {
+    if (this.gridBuildScheduled) return;
+    this.gridBuildScheduled = true;
+    requestAnimationFrame(() => {
+      this.gridBuildScheduled = false;
+      this.buildNextQueuedGridBay();
+    });
+  }
+
+  buildNextQueuedGridBay() {
+    if (this.state?.mode !== "category" || !this.categoryProducts || !this.gridBays) {
+      this.pendingGridBuilds.clear();
+      return;
+    }
+    const rightEdge = this.camera.aspect < 0.78 ? 4.6 : 8.9;
+    for (const [index, queued] of this.pendingGridBuilds) {
+      this.pendingGridBuilds.delete(index);
+      const layout = this.gridLayout ?? SMALL_GRID;
+      const x = layout.startX + Math.floor(index / 2) * layout.stepX;
+      const visibleX = x - this.scrollOffset;
+      const near = visibleX >= HERO_GRID_VANISH_X - GRID_EDGE_SCALE_DISTANCE && visibleX <= rightEdge + GRID_EDGE_SCALE_DISTANCE;
+      if (!near || this.gridBays.has(index)) continue;
+
+      const entry = this.buildGridBay(queued.item, index);
+      entry.edgeScale = gridEdgeScale(visibleX, rightEdge);
+      entry.revealProgress = 0;
+      entry.bay.scale.setScalar(Math.max(0.01, entry.edgeScale * 0.01));
+      entry.hit.visible = entry.edgeScale > 0.45;
+      this.gridBays.set(index, entry);
+      this.refreshGridHitTargets();
+      break;
+    }
+    if (this.pendingGridBuilds.size) this.scheduleGridBuildDrain();
+  }
+
+  refreshGridHitTargets() {
+    const entries = [...this.gridBays.values()];
+    this.gridHitEntries = entries.filter((entry) => entry.edgeScale > 0.62);
+    this.gridHittables = this.gridHitEntries.map((entry) => entry.hit);
+    this.clickable = [this.bigHit, ...entries.map((entry) => entry.hit)];
   }
 
   buildViewer(category, product) {
@@ -988,7 +1233,7 @@ export class GalleryScene {
     const isObjectProduct = product.kind === "object";
     const display = this.createProductDisplay(product, { width: 1.72, height: 1.96, big: true });
     display.userData.transitionProduct = true;
-    display.position.set(0, isObjectProduct ? 0.12 : 0, isObjectProduct ? 0.62 : 0.48);
+    display.position.set(0, isObjectProduct ? 0.12 : 0, (isObjectProduct ? 0.62 : 0.48) + VIEWER_WALL_CLEARANCE);
     display.userData.viewerProduct = true;
     if (isObjectProduct) {
       bay.add(this.createFloatingShelf({ width: 1.9, depth: 0.78, thickness: 0.09, y: -0.3, z: 0.43 }));
@@ -996,6 +1241,7 @@ export class GalleryScene {
     bay.add(display);
     this.viewerProduct = display;
     this.viewerProductInfo = { productId: product.id, baseScale: display.scale.clone() };
+    this.applyLayerExpansionToObject(display, this.layersExpanded, true);
     this.viewerBay = bay;
     this.viewerGroup.add(this.createWallLightPool(0, 1.9, 2.5, 2.8, 0.16), bay);
   }
@@ -1031,6 +1277,50 @@ export class GalleryScene {
         return entry.acrylic;
       });
       child.material = Array.isArray(child.material) ? swapped : swapped[0];
+    });
+  }
+
+  setLayerExpanded(productId, expanded) {
+    this.layersExpanded = expanded;
+    if (this.state?.mode !== "viewer") return;
+    if (!this.viewerProduct || this.viewerProductInfo?.productId !== productId) return;
+    this.applyLayerExpansionToObject(this.viewerProduct, expanded);
+  }
+
+  applyLayerExpansionToObject(root, expanded, immediate = false) {
+    root?.traverse((object) => {
+      if (object.userData?.layerStack) this.applyLayerExpansionToStack(object, expanded, immediate);
+    });
+  }
+
+  applyLayerExpansionToStack(stack, expanded, immediate = false) {
+    const layerGroups = stack.userData.layerGroups ?? [];
+    stack.userData.layersExpanded = expanded;
+    layerGroups.forEach((layerGroup, index) => {
+      const depthIndex = layerGroup.userData.layerDepthIndex ?? index;
+      const baseZ = layerGroup.userData.layerBaseZ ?? layerGroup.position.z;
+      const targetZ = baseZ + (expanded ? depthIndex * LAYER_EXPAND_GAP : 0);
+      layerGroup.userData.layerTargetZ = targetZ;
+      if (immediate) layerGroup.position.z = targetZ;
+    });
+  }
+
+  updateLayeredStacks(delta) {
+    this.layerStackAnimations.forEach((stack) => {
+      if (!stack.parent) {
+        this.layerStackAnimations.delete(stack);
+        return;
+      }
+      stack.userData.assembleElapsed = (stack.userData.assembleElapsed ?? 0) + delta;
+      const elapsed = stack.userData.assembleElapsed;
+      (stack.userData.layerGroups ?? []).forEach((layerGroup, index) => {
+        const reveal = smooth01((elapsed - (layerGroup.userData.assembleDelay ?? index * LAYER_ASSEMBLE_INTERVAL)) / LAYER_ASSEMBLE_DURATION);
+        layerGroup.visible = reveal > 0.01;
+        layerGroup.scale.setScalar(Math.max(0.001, reveal));
+        const targetZ = layerGroup.userData.layerTargetZ ?? layerGroup.userData.layerBaseZ ?? layerGroup.position.z;
+        const introLift = (1 - reveal) * (LAYER_ASSEMBLE_LATCH_DISTANCE + index * 0.035);
+        layerGroup.position.z += (targetZ + introLift - layerGroup.position.z) * 0.18;
+      });
     });
   }
 
@@ -1151,23 +1441,36 @@ export class GalleryScene {
 
   createLayeredProduct(product, bounds) {
     const group = new THREE.Group();
+    group.userData.productId = product.id;
     const placeholder = this.createProceduralLayerStack(product, bounds);
     group.add(placeholder);
 
     if (!product.layers?.length) return group;
     const cachedLayers = product.layers.map((path) => this.svgResolvedCache.get(path));
     if (cachedLayers.every(Boolean)) {
-      group.remove(placeholder);
-      disposeObject3D(placeholder);
-      group.add(this.createLayeredSvgStack(product, bounds, cachedLayers));
+      this.scheduleIdleTask(() => {
+        if (!group.parent) return;
+        group.remove(placeholder);
+        disposeObject3D(placeholder);
+        group.add(this.createLayeredSvgStack(product, bounds, cachedLayers));
+        if (this.viewerProductInfo?.productId === product.id && this.layersExpanded) {
+          this.applyLayerExpansionToObject(group, true);
+        }
+      });
       return group;
     }
     Promise.all(product.layers.map((path) => this.loadSvgText(path)))
       .then((svgTexts) => {
-        const model = this.createLayeredSvgStack(product, bounds, svgTexts);
-        group.remove(placeholder);
-        disposeObject3D(placeholder);
-        group.add(model);
+        this.scheduleIdleTask(() => {
+          if (!group.parent) return;
+          const model = this.createLayeredSvgStack(product, bounds, svgTexts);
+          group.remove(placeholder);
+          disposeObject3D(placeholder);
+          group.add(model);
+          if (this.viewerProductInfo?.productId === product.id && this.layersExpanded) {
+            this.applyLayerExpansionToObject(group, true);
+          }
+        });
       })
       .catch((error) => {
         console.warn(`[BA] Could not build SVG layer stack for ${product.name}`, error);
@@ -1188,9 +1491,8 @@ export class GalleryScene {
     const back = new THREE.Color(bounds.homeDark ? (isMandala ? 0x3d2c17 : 0x211f1d) : isMandala ? 0xb6a271 : 0xbcbcbc);
     const front = new THREE.Color(bounds.homeDark ? (isMandala ? 0x0d0a06 : 0x0b0a09) : 0x272727);
 
-    // Detect the solid full-canvas backing sheet (a plain rectangle = very few path commands)
-    // and force it to the BACK whatever its file index — otherwise a mid/front backing sheet
-    // (e.g. Motorcycle layer-04) sits in front of and hides the detail cuts.
+    // Explicit catalog order wins. It is back-to-front and avoids guessing from SVG path
+    // complexity for pieces whose layer files were exported in front-detail order.
     const commandCount = (svg) => (svg.match(/[MLHVCSQTAZ]/gi) || []).length;
     let backIndex = -1;
     let minCommands = Infinity;
@@ -1202,20 +1504,42 @@ export class GalleryScene {
       }
     });
     const hasBacking = minCommands <= 10;
-    const detailOrder = svgTexts.map((_, i) => i).filter((i) => !(hasBacking && i === backIndex));
-    if (product.frontLayerFirst) detailOrder.reverse();
     const depthOf = new Array(svgTexts.length);
-    if (hasBacking) depthOf[backIndex] = 0;
-    detailOrder.forEach((idx, step) => {
-      depthOf[idx] = (hasBacking ? 1 : 0) + step;
-    });
-    const maxDepth = Math.max(1, svgTexts.length - 1);
+    const explicitOrder = Array.isArray(product.layerOrder)
+      ? product.layerOrder.filter((index) => Number.isInteger(index) && index >= 0 && index < svgTexts.length)
+      : null;
+    if (explicitOrder?.length) {
+      explicitOrder.forEach((idx, step) => {
+        depthOf[idx] = step;
+      });
+      svgTexts.forEach((_, idx) => {
+        if (depthOf[idx] === undefined) depthOf[idx] = depthOf.filter(Number.isFinite).length;
+      });
+    } else {
+      const detailOrder = svgTexts.map((_, i) => i).filter((i) => !(hasBacking && i === backIndex));
+      if (product.frontLayerFirst) detailOrder.reverse();
+      if (hasBacking) depthOf[backIndex] = 0;
+      detailOrder.forEach((idx, step) => {
+        depthOf[idx] = (hasBacking ? 1 : 0) + step;
+      });
+    }
+    const maxDepth = Math.max(1, ...depthOf.filter(Number.isFinite));
+    const layerGroups = [];
 
     svgTexts.forEach((svgText, layerIndex) => {
       if (bounds.homeDark && isMandala && hasBacking && layerIndex === backIndex) return;
       const parsed = this.svgLoader.parse(svgText);
       const depthIndex = depthOf[layerIndex];
       const tint = depthIndex / maxDepth;
+      const layerGroup = new THREE.Group();
+      layerGroup.position.z = depthIndex * layerGap;
+      layerGroup.userData = {
+        isLayeredSvgLayer: true,
+        layerDepthIndex: depthIndex,
+        layerBaseZ: depthIndex * layerGap,
+        layerTargetZ: depthIndex * layerGap,
+        assembleDelay: depthIndex * LAYER_ASSEMBLE_INTERVAL,
+      };
       const material = new THREE.MeshStandardMaterial({
         color: new THREE.Color().lerpColors(back, front, tint),
         roughness: bounds.homeDark ? 0.4 : 0.52,
@@ -1235,12 +1559,15 @@ export class GalleryScene {
             }),
             material,
           );
-          mesh.position.z = depthIndex * layerGap;
           mesh.castShadow = true;
           mesh.receiveShadow = true;
-          content.add(mesh);
+          layerGroup.add(mesh);
         });
       });
+      if (layerGroup.children.length) {
+        content.add(layerGroup);
+        layerGroups.push(layerGroup);
+      }
     });
 
     const box = new THREE.Box3().setFromObject(content);
@@ -1257,6 +1584,17 @@ export class GalleryScene {
     const scale = Math.min(targetWidth / size.x, targetHeight / size.y);
     content.scale.set(scale, -scale, 1);
     content.position.z = -layerDepth * 0.5;
+    content.userData.layerStack = true;
+    content.userData.layerGroups = layerGroups.sort((a, b) => a.userData.layerDepthIndex - b.userData.layerDepthIndex);
+    content.userData.assembleElapsed = 0;
+    this.applyLayerExpansionToStack(content, false, true);
+    content.userData.layerGroups.forEach((layerGroup, index) => {
+      const targetZ = layerGroup.userData.layerTargetZ ?? layerGroup.userData.layerBaseZ ?? layerGroup.position.z;
+      layerGroup.position.z = targetZ + LAYER_ASSEMBLE_LATCH_DISTANCE + index * 0.035;
+      layerGroup.visible = false;
+      layerGroup.scale.setScalar(0.001);
+    });
+    this.layerStackAnimations.add(content);
     return content;
   }
 
@@ -1356,11 +1694,17 @@ export class GalleryScene {
         group.add(content);
     };
 
+    const buildWhenIdle = (svgText) => {
+      this.scheduleIdleTask(() => {
+        if (!group.parent) return;
+        buildSvg(svgText);
+      });
+    };
     const cachedSvg = this.svgResolvedCache.get(product.image);
     if (cachedSvg) {
-      buildSvg(cachedSvg);
+      buildWhenIdle(cachedSvg);
     } else {
-      this.loadSvgText(product.image).then(buildSvg).catch((error) => {
+      this.loadSvgText(product.image).then(buildWhenIdle).catch((error) => {
         console.warn(`[BA] Could not build SVG mesh for ${product.image}`, error);
       });
     }
@@ -1596,13 +1940,20 @@ export class GalleryScene {
   }
 
   createExtrudedText(text, size, depth, material) {
-    const geometry = new TextGeometry(text, {
-      font: WALL_FONT,
-      size,
-      height: depth,
-      curveSegments: 2,
-      bevelEnabled: false,
-    });
+    const cacheKey = `${text}|${size}|${depth}`;
+    let template = this.textGeometryCache.get(cacheKey);
+    if (!template) {
+      template = new TextGeometry(text, {
+        font: WALL_FONT,
+        size,
+        height: depth,
+        curveSegments: 2,
+        bevelEnabled: false,
+      });
+      template.computeBoundingBox();
+      this.textGeometryCache.set(cacheKey, template);
+    }
+    const geometry = template.clone();
     geometry.computeBoundingBox();
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
@@ -1903,6 +2254,7 @@ export class GalleryScene {
     const light = new THREE.RectAreaLight(LIGHT_COLOR, intensity, 12, 0.5);
     light.position.copy(position);
     light.lookAt(target);
+    light.userData.excludeFromTransition = true;
     return light;
   }
 
@@ -1918,6 +2270,7 @@ export class GalleryScene {
     });
     const pool = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
     pool.position.set(x, y, 0.006);
+    pool.userData.excludeFromTransition = true;
     return pool;
   }
 
@@ -1965,7 +2318,7 @@ export class GalleryScene {
     });
     this.canvas.addEventListener("pointermove", (event) => {
       if (!this.dragging) {
-        this.updateHover(event);
+        this.queueHover(event);
         return;
       }
       const delta = event.clientX - this.dragLastX;
@@ -1979,9 +2332,9 @@ export class GalleryScene {
       } else if (this.state?.mode === "category") {
         this.scrollCategoryTo(this.scrollOffset - delta * 0.012);
       }
-      this.updateHover(event);
     });
     this.canvas.addEventListener("pointerleave", () => {
+      this.pendingHoverPoint = null;
       this.hoveredEntry = null;
       this.setHoveredHomeZone(null);
       this.canvas.style.cursor = "";
@@ -2059,9 +2412,8 @@ export class GalleryScene {
     this.pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
     this.pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const entries = [...this.gridBays.values()];
-    const hittable = entries.filter((entry) => entry.edgeScale > 0.62).map((entry) => entry.hit);
-    const hit = this.raycaster.intersectObjects(hittable, true)[0];
+    const entries = this.gridHitEntries ?? [];
+    const hit = this.raycaster.intersectObjects(this.gridHittables ?? [], false)[0];
     this.hoveredEntry = hit ? entries.find((entry) => entry.hit === hit.object) ?? null : null;
     this.canvas.style.cursor = this.hoveredEntry ? "pointer" : "";
   }
@@ -2069,8 +2421,20 @@ export class GalleryScene {
   setHoveredHomeZone(entry) {
     if (entry === this.hoveredHomeZone) return;
     this.hoveredHomeZone = entry;
-    if (entry) this.prepareCategory(entry.group.userData.categoryId);
     this.onCategoryPreview?.(entry?.group.userData.categoryId ?? null);
+  }
+
+  queueHover(event) {
+    this.pendingHoverPoint = { clientX: event.clientX, clientY: event.clientY };
+    if (this.hoverFramePending) return;
+    this.hoverFramePending = true;
+    requestAnimationFrame(() => {
+      this.hoverFramePending = false;
+      if (!this.pendingHoverPoint) return;
+      const point = this.pendingHoverPoint;
+      this.pendingHoverPoint = null;
+      this.updateHover(point);
+    });
   }
 
   resize() {
@@ -2113,26 +2477,38 @@ export class GalleryScene {
         const targetScale = revealScale * (active ? 1.065 : 1);
         const targetZ = active ? 0.2 : 0;
         entry.group.visible = revealScale > 0.01;
-        entry.group.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.14);
+        entry.group.scale.setScalar(entry.group.scale.x + (targetScale - entry.group.scale.x) * 0.14);
         entry.group.position.z += (targetZ - entry.group.position.z) * 0.16;
+        if (!this.transition?.introToHome) {
+          entry.products?.forEach((item) => {
+            const productTargetZ = item.basePosition.z + (1 - revealScale) * PRODUCT_LATCH_DISTANCE;
+            item.object.position.z += (productTargetZ - item.object.position.z) * 0.2;
+          });
+        }
       });
     }
     if (this.gridBays) {
       this.gridBays.forEach((entry) => {
+        if (!this.transition && entry.revealProgress < 1) {
+          entry.revealProgress = Math.min(1, entry.revealProgress + delta * 3.6);
+        }
         const edgeScale = entry.edgeScale ?? 1;
         const active = edgeScale > 0.72 && entry === this.hoveredEntry;
         const revealScale = smooth01(entry.revealProgress ?? 1);
         const targetBayScale = edgeScale * revealScale;
-        const targetProductScale = entry.productBaseScale.clone().multiplyScalar(active ? 1.12 : 1);
-        const targetProductZ = entry.productBaseZ + (active ? 0.16 : 0);
+        const productScaleMul = active ? 1.12 : 1;
+        const targetProductZ = entry.productBaseZ + (1 - revealScale) * PRODUCT_LATCH_DISTANCE + (active ? 0.16 : 0);
         entry.bay.visible = edgeScale > 0.035 || entry.bay.scale.x > 0.04;
-        entry.bay.scale.lerp(new THREE.Vector3(targetBayScale, targetBayScale, targetBayScale), 0.18);
+        entry.bay.scale.setScalar(entry.bay.scale.x + (targetBayScale - entry.bay.scale.x) * 0.18);
         entry.bay.position.z += (0 - entry.bay.position.z) * 0.18;
-        entry.productDisplay.scale.lerp(targetProductScale, 0.2);
+        entry.productDisplay.scale.x += (entry.productBaseScale.x * productScaleMul - entry.productDisplay.scale.x) * 0.2;
+        entry.productDisplay.scale.y += (entry.productBaseScale.y * productScaleMul - entry.productDisplay.scale.y) * 0.2;
+        entry.productDisplay.scale.z += (entry.productBaseScale.z * productScaleMul - entry.productDisplay.scale.z) * 0.2;
         entry.productDisplay.position.z += (targetProductZ - entry.productDisplay.position.z) * 0.2;
         if (entry.hoverGlow) entry.hoverGlow.visible = active;
       });
     }
+    this.updateLayeredStacks(delta);
     this.camera.lookAt(this.look);
     this.renderer.render(this.scene, this.camera);
   }
@@ -2141,6 +2517,32 @@ export class GalleryScene {
     const transition = this.transition;
     transition.elapsed = Math.max(transition.elapsed + delta, (performance.now() - transition.startedAt) / 1000);
     const elapsed = transition.elapsed;
+
+    if (transition.introToHome) {
+      const logoMove = smooth01((elapsed - 0.28) / 0.82);
+      this.wallLogo.position.lerpVectors(transition.logoStart.position, transition.logoEnd.position, logoMove);
+      this.wallLogo.scale.lerpVectors(transition.logoStart.scale, transition.logoEnd.scale, logoMove);
+      if (this.logoPool) {
+        this.logoPool.position.lerpVectors(transition.logoStart.poolPosition, transition.logoEnd.poolPosition, logoMove);
+        this.logoPool.scale.lerpVectors(transition.logoStart.poolScale, transition.logoEnd.poolScale, logoMove);
+      }
+
+      this.introCopyItems?.forEach((item, index) => {
+        const hide = smooth01((elapsed - index * 0.12) / 0.26);
+        item.visible = hide < 0.985;
+        item.position.copy(item.userData.introBasePosition);
+        item.position.z += hide * 0.09;
+        item.scale.copy(item.userData.introBaseScale).multiplyScalar(Math.max(0.001, 1 - hide * 0.28));
+      });
+
+      this.homeGalleryRevealItems.forEach((item, index) => {
+        const reveal = smooth01((elapsed - 1.25 - index * 0.26) / 0.46);
+        item.object.visible = reveal > 0.01;
+        item.object.position.copy(item.basePosition);
+        item.object.position.z += (1 - reveal) * PRODUCT_LATCH_DISTANCE;
+        item.object.scale.copy(item.baseScale).multiplyScalar(Math.max(0.001, reveal));
+      });
+    }
 
     transition.outgoingItems.forEach(({ object, index, scale, position, isBay }) => {
       const settle = smooth01((elapsed - index * 0.012) / 0.34);
@@ -2151,53 +2553,58 @@ export class GalleryScene {
     });
 
     if (transition.source && transition.sourceStart && transition.sourceEnd) {
-      const move = smooth01((elapsed - 0.18) / 0.67);
-      const detach = smooth01(elapsed / 0.18) * (1 - move);
+      const move = smooth01((elapsed - 0.42) / 0.72);
+      const detach = smooth01((elapsed - 0.34) / 0.18) * (1 - move);
       transition.source.position.lerpVectors(transition.sourceStart, transition.sourceEnd, move);
       transition.source.position.z += detach * 0.22 + Math.sin(move * Math.PI) * 0.2;
       transition.source.scale.lerpVectors(transition.sourceStartScale, transition.sourceEndScale, move);
-      transition.source.visible = this.state?.mode === "category" ? elapsed < transition.duration - 0.08 : elapsed < 0.9;
+      transition.source.visible = elapsed < 1.92;
     }
 
     if (transition.destinationBay) {
-      const reveal = smooth01((elapsed - 0.82) / 0.34);
+      const reveal = smooth01((elapsed - 1.88) / 0.24);
       transition.destinationBay.visible = reveal > 0;
       transition.destinationBay.scale.setScalar(Math.max(0.001, 0.9 + reveal * 0.1));
     }
 
-    if (transition.destinationProduct) {
-      transition.destinationProduct.visible = this.state?.mode === "category" ? elapsed >= transition.duration - 0.08 : elapsed >= 0.9;
+    if (transition.destinationProduct && transition.destinationProductBasePosition) {
+      const reveal = smooth01((elapsed - 1.88) / 0.42);
+      transition.destinationProduct.visible = reveal > 0;
+      transition.destinationProduct.position.copy(transition.destinationProductBasePosition);
+      transition.destinationProduct.position.z += (1 - reveal) * PRODUCT_LATCH_DISTANCE;
+    } else if (transition.destinationProduct) {
+      transition.destinationProduct.visible = elapsed >= 1.88;
     }
 
     if (this.state?.mode === "category" && this.categoryDescription) {
       const glyphs = this.categoryDescription.userData.revealGlyphs ?? [];
       const interval = Math.min(0.012, 0.85 / Math.max(1, glyphs.length));
       glyphs.forEach((glyph, index) => {
-        const reveal = smooth01((elapsed - 1.02 - index * interval) / 0.12);
+        const reveal = smooth01((elapsed - 1.92 - index * interval) / 0.12);
         glyph.visible = reveal > 0;
         glyph.scale.copy(glyph.userData.revealBaseScale).multiplyScalar(0.78 + reveal * 0.22);
         glyph.position.copy(glyph.userData.revealBasePosition);
         glyph.position.z += (1 - reveal) * 0.055;
       });
-      const dividerAt = 1.02 + this.categoryDescription.userData.titleGlyphCount * interval + 0.08;
+      const dividerAt = 1.92 + this.categoryDescription.userData.titleGlyphCount * interval + 0.08;
       if (this.categoryDescription.userData.revealDivider) {
         this.categoryDescription.userData.revealDivider.visible = elapsed >= dividerAt;
       }
     }
 
-    const cameraProgress = smooth01((elapsed - 0.86) / 0.72);
+    const cameraProgress = smooth01((elapsed - 1.2) / 0.68);
     this.camera.position.lerpVectors(transition.cameraStart, transition.cameraEnd, cameraProgress);
     this.look.lerpVectors(transition.lookStart, transition.lookEnd, cameraProgress);
 
     if (this.state?.mode === "category" && this.gridBays) {
       this.gridBays.forEach((entry) => {
-        entry.revealProgress = THREE.MathUtils.clamp((elapsed - 2.0 - entry.revealIndex * 0.045) / 0.25, 0, 1);
+        entry.revealProgress = THREE.MathUtils.clamp((elapsed - 2.62 - entry.revealIndex * 0.11) / 0.42, 0, 1);
       });
     }
 
-    if (this.state?.mode === "home" && this.homeZones) {
+    if (this.state?.mode === "home" && this.homeZones && !transition.introToHome) {
       this.homeZones.forEach((entry) => {
-        entry.revealProgress = THREE.MathUtils.clamp((elapsed - 0.34 - entry.revealIndex * 0.14) / 0.34, 0, 1);
+        entry.revealProgress = THREE.MathUtils.clamp((elapsed - 0.42 - entry.revealIndex * 0.2) / 0.42, 0, 1);
       });
     }
 
@@ -2225,9 +2632,10 @@ function fit(maxWidth, maxHeight, aspect) {
 }
 
 function disposeObject3D(object) {
+  const disposeResources = !object.userData?.usesSharedResources;
   object.traverse((child) => {
-    if (child.geometry) child.geometry.dispose();
-    if (child.material) {
+    if (disposeResources && child.geometry) child.geometry.dispose();
+    if (disposeResources && child.material) {
       if (Array.isArray(child.material)) {
         child.material.forEach((material) => material.dispose());
       } else {

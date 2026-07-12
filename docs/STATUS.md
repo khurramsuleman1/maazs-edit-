@@ -3,9 +3,9 @@
 > Source of truth. Always current. Read first, update before finishing.
 > Keep it short — finished work moves to CHANGELOG, not here.
 
-**Last updated:** 2026-07-13 by Codex (v2 checkpoint docs + build verification)
+**Last updated:** 2026-07-13 by Codex (layered-art camera-side assembly correction)
 **Checkpoint:** v2 current-state snapshot.
-**Phase:** Vite/Three.js single-wall runtime is the active storefront: Intro Home → Browse Home → bayless category/subcollection grids → product viewer.
+**Phase:** Vite/Three.js single-wall runtime is the active storefront: Intro Home → Gallery View → bayless category/subcollection grids → product viewer.
 **Shopify:** Admin data was pulled 2026-07-12: 506 products, 38 collections, PKR, 173/198 local storefront products matched.
 **Operating mode:** Single operator. `docs/STATUS.md` carries the current session state.
 
@@ -20,17 +20,18 @@
 
 ## Now
 
-- **V2 web state is in-site:** `intro` is the initial editorial wall, `home` is Browse Home with four grouped bayless product zones, and category/subcollection/viewer surfaces are bayless wall mounts with thick wall text. 3D Objects use black floating shelves in category grids and viewer.
+- **V2 web state is in-site:** `intro` is the initial editorial wall, `home` is now labeled Gallery View with four grouped bayless product zones, and category/subcollection/viewer surfaces are bayless wall mounts with thick wall text. 3D Objects use black floating shelves in category grids and viewer.
 - **Commerce data is aligned:** `docs/SHOPIFY_PRODUCT_ALIGNMENT.json` and `docs/BA_PRODUCT_LOG.xlsx` exist. `catalog.js` mirrors live "from" prices for matched products, while `hud.js` computes selection prices from exact live variants plus site-side Wall/Digital Thickness and Material options.
 - **Variant visuals are active:** product viewer size, thickness, and acrylic/wood material response now follow the selected option set. Default display size is the largest offered size; Wood + 2mm is the baseline.
-- **Build status:** `npm run build` passes on 2026-07-13. Vite still warns that the main bundle is over 500 kB after minification, which is expected for the current un-split Three.js app.
+- **Interaction/performance animation is in-site:** category and subcollection selection now starts state changes immediately instead of awaiting asset prep; Home hover no longer triggers preloads; Intro starts an idle background asset prewarm; SVG/layer extrusion from cached text is deferred to idle work; pointer hover raycasts are frame-throttled. Static wall/floor/atmosphere/lights now live outside view groups and never duplicate or move. Transitions follow the locked sequence: outgoing content disappears first, selected product moves/scales into its destination, camera moves only after the product lands, then destination text and pieces reveal one by one. Intro → Gallery View uses the same BA wall-logo mesh moving into its gallery placement, hides Intro text line-by-line, reveals Gallery View products Wall Art → Digital → Layered → 3D one piece at a time, and keeps HUD controls hidden until animation completion.
+- **Layered-art experience is active:** Eclipse Mandala and Motorcycle now use explicit back-to-front SVG layer order. Layered SVG stacks assemble one layer at a time from a clear camera-side z offset, the product panel exposes an Expand/Collapse Layers button in viewer mode, and product reveal animations now start forward between the camera and wall before latching back onto their wall positions. All wall/product display placements have additional z-clearance from the wall to avoid collisions. `npm run build` passes on 2026-07-13. Browser smoke passed Layered Art → Eclipse viewer with layer control; headless Chromium only reported WebGL driver performance warnings. Vite still warns that the main bundle is over 500 kB after minification, expected for the current un-split Three.js app.
 
 ## Next
 
-1. Master Khurram reviews the v2 web flow locally: Intro Home → Browse Home → Wall/Digital/Layered/3D category grids → product viewer variants.
+1. Master Khurram reviews the v2 web flow locally: Intro Home → Gallery View → Wall/Digital/Layered/3D category grids → product viewer variants and layered Expand/Collapse.
 2. Claude brings `BAstore.blend` into parity using `docs/CLAUDE_BLENDER_D47_HANDOFF.md` and `docs/CLAUDE_BLENDER_D48_INTRO_HANDOFF.md`, then leaves the live review cameras active.
 3. After visual approval, decide whether to push the site-side Thickness/Material options into Shopify, then regenerate `src/data/shopifyVariants.js`.
-4. Optional performance pass: split the large runtime bundle and/or lazy-load heavy category assets after the v2 checkpoint.
+4. Optional next performance pass: move heavy SVG/STL geometry conversion into Web Workers or pre-generated GLB/JSON geometry assets, then split the large Three.js bundle.
 
 ## Blocked
 

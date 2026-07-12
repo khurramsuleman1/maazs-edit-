@@ -44,6 +44,7 @@ hud = createHud({
   onStepProduct: stepProduct,
   onCategoryScroll: (direction) => gallery.scrollCategoryBy(direction),
   onVariantChange: (productId, params) => gallery.applyViewerVariant(productId, params),
+  onLayerExpandChange: (productId, expanded) => gallery.setLayerExpanded(productId, expanded),
 });
 
 function sync() {
@@ -65,11 +66,11 @@ function showBrowseHome() {
   sync();
 }
 
-async function openCategory(categoryId) {
+function openCategory(categoryId) {
   if (interactionLocked) return;
   if (appState.mode === "category" && appState.activeCategoryId === categoryId && !appState.activeSubcollectionId) return;
   setInteractionLocked(true);
-  await gallery.prepareCategory(categoryId);
+  gallery.prepareCategory(categoryId);
   const category = getCategory(categoryId);
   appState.mode = "category";
   appState.activeCategoryId = category.id;
@@ -78,11 +79,11 @@ async function openCategory(categoryId) {
   sync();
 }
 
-async function openSubcollection(subcollectionId) {
+function openSubcollection(subcollectionId) {
   if (interactionLocked) return;
   if (appState.mode === "category" && appState.activeSubcollectionId === subcollectionId) return;
   setInteractionLocked(true);
-  await gallery.prepareCategory(appState.activeCategoryId, subcollectionId);
+  gallery.prepareCategory(appState.activeCategoryId, subcollectionId);
   const category = getCategory(appState.activeCategoryId);
   appState.mode = "category";
   appState.activeSubcollectionId = subcollectionId;

@@ -44,7 +44,18 @@ function unitPrice(product, category, selection) {
   return base;
 }
 
-export function createHud({ root, categories, onIntro, onBrowseHome, onCategory, onProduct, onStepProduct, onCategoryScroll, onVariantChange }) {
+export function createHud({
+  root,
+  categories,
+  onIntro,
+  onBrowseHome,
+  onCategory,
+  onProduct,
+  onStepProduct,
+  onCategoryScroll,
+  onVariantChange,
+  onLayerExpandChange,
+}) {
   root.innerHTML = `
     <header class="hud-top">
       <button class="brand" type="button" data-action="intro" aria-label="Return to introduction">
@@ -90,6 +101,7 @@ export function createHud({ root, categories, onIntro, onBrowseHome, onCategory,
       <p class="price"></p>
       <p class="material"></p>
       <div class="variant-groups"></div>
+      <button class="layer-expand-button" type="button" data-action="toggle-layer-expand" hidden>Expand Layers</button>
       <div class="quantity-row">
         <span>Quantity</span>
         <div class="quantity-stepper" aria-label="Quantity">
@@ -132,7 +144,7 @@ export function createHud({ root, categories, onIntro, onBrowseHome, onCategory,
       <button type="button" data-action="prev" aria-label="Previous product">Prev</button>
       <button type="button" data-action="next" aria-label="Next product">Next</button>
       <button type="button" data-action="category" aria-label="Back to collection">Grid</button>
-      <button type="button" data-action="browse-home" aria-label="Back to Browse Home">Home</button>
+      <button type="button" data-action="browse-home" aria-label="Back to Gallery View">Gallery</button>
     </div>
 
     <section class="search-panel" data-panel="search" hidden>
@@ -161,6 +173,7 @@ export function createHud({ root, categories, onIntro, onBrowseHome, onCategory,
   let lastState = null;
   let previewedCategoryId = null;
   let activeProductId = null;
+  let layersExpanded = false;
   let quantity = 1;
   let interactionLocked = false;
 
@@ -218,6 +231,12 @@ export function createHud({ root, categories, onIntro, onBrowseHome, onCategory,
     if (action === "next") onStepProduct(1);
     if (action === "category-scroll-prev") onCategoryScroll?.(-1);
     if (action === "category-scroll-next") onCategoryScroll?.(1);
+    if (action === "toggle-layer-expand" && lastState) {
+      const { product } = getProduct(lastState.activeProductId);
+      layersExpanded = !layersExpanded;
+      renderProductPanel(product, getCategory(lastState.activeCategoryId));
+      onLayerExpandChange?.(product.id, layersExpanded);
+    }
     if (action === "decrement") {
       quantity = Math.max(1, quantity - 1);
       render(lastState);
@@ -239,13 +258,15 @@ export function createHud({ root, categories, onIntro, onBrowseHome, onCategory,
 
     if (activeProductId !== product.id) {
       activeProductId = product.id;
+      layersExpanded = false;
       quantity = 1;
       checkoutPanel.hidden = true;
       ensureSelection(product, category);
+      onLayerExpandChange?.(product.id, false);
     }
 
     categoryRail.innerHTML = [
-      `<button class="${state.mode === "home" ? "is-active" : ""}" type="button" data-action="browse-home"><span class="nav-dot"></span><span>Browse Home</span></button>`,
+      `<button class="${state.mode === "home" ? "is-active" : ""}" type="button" data-action="browse-home"><span class="nav-dot"></span><span>Gallery View</span></button>`,
       ...categories.map(
         (item) => `
           <button class="${item.id === state.activeCategoryId && state.mode !== "home" ? "is-active" : ""}" type="button" data-category="${item.id}" aria-label="Open ${escapeAttribute(item.label)}">
@@ -282,6 +303,7 @@ export function createHud({ root, categories, onIntro, onBrowseHome, onCategory,
   function setInteractionLocked(locked) {
     interactionLocked = locked;
     root.dataset.interactionLocked = locked ? "true" : "false";
+    root.classList.toggle("is-transitioning", locked);
     // The viewer mesh is rebuilt during transitions — reapply the remembered selection
     // as soon as the scene hands interaction back.
     if (!locked) notifyVariant();
@@ -300,6 +322,10 @@ export function createHud({ root, categories, onIntro, onBrowseHome, onCategory,
     productPanel.querySelector(".price").textContent = price === null ? product.price : formatPkr(price);
     productPanel.querySelector(".material").textContent = productDescription(product, category);
     productPanel.querySelector(".variant-groups").innerHTML = renderVariantGroups(product, category);
+    const expandButton = productPanel.querySelector(".layer-expand-button");
+    expandButton.hidden = product.kind !== "layered";
+    expandButton.textContent = layersExpanded ? "Collapse Layers" : "Expand Layers";
+    expandButton.setAttribute("aria-pressed", layersExpanded ? "true" : "false");
     productPanel.querySelector(".quantity-stepper strong").textContent = quantity;
     productPanel.querySelector(".shopify-buy").href = productUrl(product);
     productPanel.querySelector(".whatsapp").href = whatsappUrl(product, category);
