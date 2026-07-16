@@ -3,7 +3,7 @@
 > Source of truth. Always current. Read first, update before finishing.
 > Keep it short — finished work moves to CHANGELOG, not here.
 
-**Last updated:** 2026-07-16 by Codex (latest storefront version build-verified for GitHub sync)
+**Last updated:** 2026-07-16 by Codex (latest storefront version committed locally; GitHub push blocked by auth)
 **Checkpoint:** v2 current-state snapshot.
 **Phase:** Vite/Three.js single-wall runtime is the active storefront: Intro Home → Gallery View → bayless category/subcollection grids → product viewer.
 **Shopify:** Admin data was pulled 2026-07-12: 506 products, 38 collections, PKR, 173/198 local storefront products matched.
@@ -45,4 +45,4 @@
 ## Blocked
 
 - Blender D47/D48 parity is still waiting on live in-Blender review and approval.
-- GitHub PR creation is unavailable in this environment because `gh` is not installed; plain `git` commit/tag/push can still be used if remote auth works.
+- GitHub push is blocked in this environment until GitHub auth is restored: `git push origin main` fails with `could not read Username for 'https://github.com': Device not configured`; `gh` is not installed; SSH auth is denied. Local `main` contains the latest committed work and is ahead of `origin/main`.
