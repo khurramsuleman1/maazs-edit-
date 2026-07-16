@@ -19,8 +19,12 @@ dist/
 # heavy local working files (keep source .blend, ignore autosaves/renders-in-progress)
 assets/renders/pending/*.tmp
 
-# Heavy existing source assets — kept on disk, not in git (too large to version)
+# Heavy existing source assets — keep broad folders local, except the LFS-tracked
+# Blender source file that designers edit.
 /2D Art All SVG/
-/BA All DATA/
+/BA All DATA/**
 *.blend
+!/BA All DATA/
+!/BA All DATA/All Multilayer Art-3/
+!/BA All DATA/All Multilayer Art-3/BAstore.blend
 LOGO Blackaesthetics.svg
