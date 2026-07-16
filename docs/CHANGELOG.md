@@ -141,3 +141,4 @@
 2026-07-16 — [Codex] — Build-verified the latest storefront/mobile/cart state for GitHub sync, removed the stale local-server status note, and fixed trailing whitespace before commit.
 2026-07-16 — [Codex] — Committed the latest storefront state locally, then hit a GitHub HTTPS auth blocker on `git push origin main`; recorded the blocker in STATUS for the next retry.
 2026-07-16 — [Codex] — Added `BAstore.blend` to the Git LFS workflow, unignored only that Blender source path from `BA All DATA/`, and documented the designer pull/edit/commit/push process.
+2026-07-16 — [Codex] — Committed the Git LFS-tracked `BAstore.blend` locally, but GitHub push is still blocked by missing HTTPS credentials before the LFS object can upload.

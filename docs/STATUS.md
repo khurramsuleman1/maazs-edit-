@@ -3,7 +3,7 @@
 > Source of truth. Always current. Read first, update before finishing.
 > Keep it short — finished work moves to CHANGELOG, not here.
 
-**Last updated:** 2026-07-16 by Codex (BAstore.blend added to Git LFS workflow)
+**Last updated:** 2026-07-16 by Codex (BAstore.blend committed locally with Git LFS; push blocked by GitHub auth)
 **Checkpoint:** v2 current-state snapshot.
 **Phase:** Vite/Three.js single-wall runtime is the active storefront: Intro Home → Gallery View → bayless category/subcollection grids → product viewer.
 **Shopify:** Admin data was pulled 2026-07-12: 506 products, 38 collections, PKR, 173/198 local storefront products matched.
@@ -32,7 +32,7 @@
 - **Mobile vertical-flow concepts are drafted:** `docs/ui-concepts/mobile/` contains imagegen portrait references for Intro, Gallery View, Category, Subcollection, Product Viewer, Search, Cart, Checkout Details, and Payment/Confirm. Mobile implementation direction is top-to-bottom: camera/product arrays move vertically, active products center with previous/next above/below, wall/lights stay fixed, and commerce/search surfaces use overlays or bottom sheets. Search and Cart mobile frames are layout-only because imagegen invented placeholder products/text.
 - **D55 mobile stage is implemented, QA'd, build-verified, and staged for Master Khurram's review:** portrait hides the entire gallery architecture and floats 3D products over a dark charcoal-grey backdrop with ALL text as floating DOM UI (`createMobileStage()` + `resize()` swap in `GalleryScene.js`; `.mobile-stage` DOM layer in `hud.js`/`styles.css`; `data-mobile` attr + `--mobile-frame-top/height` vars align with the letterboxed scissor on real phones). Visual QA passed 2026-07-14 in Chrome mobile preview on all views: Intro (gold BA + centred copy on charcoal), Gallery View (four header-ruled sections at 12/33/54/75% with one lit hero each), Category (COLLECTION eyebrow + title, glowing hero, wrapped name/price plaque, lane tile + plaque via `getMobileLaneItem()`), Viewer (lit product above the bottom sheet). Stage has its own key/fill/ambient lights so dark pieces read on charcoal; desktop verified unchanged; zero console errors. `npm run build` passes on 2026-07-16 with the expected >500 kB bundle warning. Remaining: Master Khurram's design verdict. Dev-only `window.__gallery` hook in `main.js` aids browser QA (hidden tabs never fire rAF — pump `g.animate()` manually).
 - **Cart and Buy Now UI are refined in-site:** the top action is now Cart, the product panel uses secondary Add to Cart plus primary gold Buy Now, and commerce now runs as a staged BA checkout drawer: Cart → Details → Payment → Confirm. Buy Now opens at Details; Add to Cart opens at Cart with thumbnail, selected options, quantity, subtotal, and Keep Browsing. Shopify routes to the live product URL; WhatsApp/COD routes to manual order text. A temporary top Mobile/Desktop preview toggle changes HUD layout and camera aspect for fast responsive checks. `npm run build` passes; Browser smoke passed Product Viewer → Buy Now → Details → Payment → WhatsApp Confirm, Add to Cart → quantity increment, and Mobile/Desktop preview toggle. Vite still warns that the main bundle is over 500 kB after minification, expected for the current un-split Three.js app.
-- **Shared Blender source is Git LFS-ready:** `BA All DATA/All Multilayer Art-3/BAstore.blend` is staged for Git LFS tracking so the designer can pull, edit, commit, and push the same source file. Workflow is documented in `docs/BLENDER_SOURCE_WORKFLOW.md`; only one person should edit the binary at a time.
+- **Shared Blender source is Git LFS-ready:** `BA All DATA/All Multilayer Art-3/BAstore.blend` is committed locally through Git LFS so the designer can pull, edit, commit, and push the same source file once GitHub auth is restored and this branch is pushed. Workflow is documented in `docs/BLENDER_SOURCE_WORKFLOW.md`; only one person should edit the binary at a time.
 
 ## Next
 
@@ -47,4 +47,4 @@
 ## Blocked
 
 - Blender D47/D48 parity is still waiting on live in-Blender review and approval.
-- GitHub push must include Git LFS upload for `BAstore.blend`; verify remote LFS accepts the 201 MB object when pushing this commit.
+- GitHub push is blocked in this environment until GitHub auth is restored: `git push origin main` fails with `could not read Username for 'https://github.com': Device not configured`. The local `main` commits include the Git LFS pointer for `BAstore.blend`; the next authenticated push must upload the 201 MB LFS object.
