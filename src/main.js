@@ -45,6 +45,8 @@ hud = createHud({
   onCategoryScroll: (direction) => gallery.scrollCategoryBy(direction),
   onVariantChange: (productId, params) => gallery.applyViewerVariant(productId, params),
   onLayerExpandChange: (productId, expanded) => gallery.setLayerExpanded(productId, expanded),
+  onPreviewModeChange: (mode) => gallery.setPreviewMode(mode),
+  getLaneInfo: () => gallery.getMobileLaneItem(),
 });
 
 function sync() {
@@ -135,3 +137,6 @@ window.addEventListener("keydown", (event) => {
 });
 
 sync();
+
+// Dev-only introspection hook for debugging camera/layout in the browser console.
+if (import.meta.env.DEV) window.__gallery = gallery;

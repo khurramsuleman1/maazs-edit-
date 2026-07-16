@@ -55,6 +55,8 @@ export function createHud({
   onCategoryScroll,
   onVariantChange,
   onLayerExpandChange,
+  onPreviewModeChange,
+  getLaneInfo,
 }) {
   root.innerHTML = `
     <header class="hud-top">
@@ -65,7 +67,8 @@ export function createHud({
         <button class="search-pill" type="button" data-action="search" aria-label="Search products">
           <span aria-hidden="true">Search products or categories</span>
         </button>
-        <button class="icon-button bag-button" type="button" data-action="checkout" aria-label="Open bag">Bag</button>
+        <button class="icon-button bag-button" type="button" data-action="checkout" aria-label="Open cart">Cart</button>
+        <button class="icon-button preview-toggle" type="button" data-action="toggle-preview-mode" aria-pressed="false">Mobile</button>
         <button class="icon-button" type="button" data-action="intro" aria-label="Reset view">Reset</button>
       </div>
     </header>
@@ -77,6 +80,33 @@ export function createHud({
     </section>
 
     <button class="intro-browse" type="button" data-action="browse-home">Browse Store</button>
+
+    <!-- D55 mobile stage: floating DOM UI over the charcoal 3D canvas (portrait only). -->
+    <div class="mobile-stage" aria-hidden="true">
+      <div class="m-intro" data-mpanel="intro">
+        <img class="m-intro-logo" src="/logo-blackaesthetics.svg" alt="Black Aesthetics" />
+        <h1>OBJECTS WITH PRESENCE.</h1>
+        <p>Black Aesthetics creates distinctive wall art, digital prints, layered pieces and 3D objects for spaces with character.</p>
+      </div>
+      <div class="m-home-labels" data-mpanel="home">
+        ${categories
+          .map(
+            (item, index) => `
+              <button type="button" data-category="${escapeAttribute(item.id)}" style="--m-slot: ${index}">
+                <span>${escapeHtml(item.label.toUpperCase())}</span>
+                <em>View collection</em>
+              </button>
+            `,
+          )
+          .join("")}
+      </div>
+      <div class="m-category" data-mpanel="category">
+        <p class="m-cat-eyebrow"></p>
+        <h2 class="m-cat-title"></h2>
+        <div class="m-hero-plaque"><strong></strong><span></span></div>
+        <div class="m-lane-plaque"><strong></strong><span></span></div>
+      </div>
+    </div>
 
     <nav class="category-rail" aria-label="Store categories"></nav>
 
@@ -116,27 +146,93 @@ export function createHud({
       </div>
       <div class="buy-row">
         <button class="buy" type="button" data-action="add-to-cart">Add to Cart</button>
-        <a class="shopify-buy" href="#" target="_blank" rel="noreferrer">Buy with Shopify</a>
+        <button class="shopify-buy" type="button" data-action="buy-now">Buy Now</button>
         <a class="whatsapp" href="#" target="_blank" rel="noreferrer" aria-label="Order via WhatsApp">WA</a>
       </div>
     </aside>
 
     <aside class="checkout-panel" data-panel="checkout" hidden>
-      <button class="text-link close-link" type="button" data-action="close-checkout">Close</button>
-      <p class="eyebrow">Bag</p>
+      <div class="cart-panel-top">
+        <p class="eyebrow">Checkout</p>
+        <button class="text-link close-link" type="button" data-action="close-checkout" data-checkout-dismiss>Close</button>
+      </div>
       <h2></h2>
-      <p class="checkout-options"></p>
-      <div class="checkout-line">
-        <span>Subtotal</span>
-        <strong></strong>
+      <div class="checkout-steps" aria-label="Checkout progress">
+        <button type="button" data-checkout-step="cart">Cart</button>
+        <button type="button" data-checkout-step="details">Details</button>
+        <button type="button" data-checkout-step="payment">Payment</button>
+        <button type="button" data-checkout-step="confirm">Confirm</button>
+      </div>
+      <div class="checkout-stage" data-stage="cart">
+        <div class="cart-item">
+          <span class="cart-thumb"></span>
+          <div class="cart-item-copy">
+            <strong></strong>
+            <small></small>
+          </div>
+          <button class="cart-remove" type="button" data-action="remove-cart" data-cart-remove aria-label="Remove item">Remove</button>
+        </div>
+        <div class="cart-quantity-row">
+          <span>Quantity</span>
+          <div class="quantity-stepper" aria-label="Cart quantity">
+            <button type="button" data-action="decrement" data-cart-quantity="-1" aria-label="Decrease quantity">-</button>
+            <strong></strong>
+            <button type="button" data-action="increment" data-cart-quantity="1" aria-label="Increase quantity">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="checkout-stage" data-stage="details">
+        <div class="checkout-field-grid">
+          <label>
+            <span>Full name</span>
+            <input type="text" autocomplete="name" placeholder="Master Khurram" />
+          </label>
+          <label>
+            <span>Phone</span>
+            <input type="tel" autocomplete="tel" placeholder="+92" />
+          </label>
+          <label>
+            <span>Email</span>
+            <input type="email" autocomplete="email" placeholder="name@example.com" />
+          </label>
+          <label>
+            <span>City</span>
+            <input type="text" autocomplete="address-level2" placeholder="Lahore" />
+          </label>
+          <label class="checkout-field-wide">
+            <span>Delivery address</span>
+            <input type="text" autocomplete="street-address" placeholder="Street, house, area" />
+          </label>
+        </div>
+      </div>
+      <div class="checkout-stage" data-stage="payment">
+        <div class="payment-options" role="radiogroup" aria-label="Payment method">
+          <button class="is-selected" type="button" data-payment-method="shopify">Shopify secure checkout</button>
+          <button type="button" data-payment-method="whatsapp">Confirm on WhatsApp</button>
+          <button type="button" data-payment-method="cod">Cash on delivery request</button>
+        </div>
+        <p class="checkout-helper">Payment is completed on Shopify or confirmed manually. No card details are collected inside this 3D preview.</p>
+      </div>
+      <div class="checkout-stage" data-stage="confirm">
+        <div class="confirm-card">
+          <span>Ready to place order</span>
+          <strong></strong>
+          <small></small>
+        </div>
+        <div class="checkout-line">
+          <span>Subtotal</span>
+          <strong></strong>
+        </div>
       </div>
       <div class="checkout-note">
-        <span>Checkout</span>
+        <span>Delivery calculated at checkout</span>
         <span>Shopify secure</span>
       </div>
       <div class="checkout-actions">
-        <a class="checkout-link" href="#" target="_blank" rel="noreferrer">Continue to Shopify</a>
-        <button class="secondary-button" type="button" data-action="close-checkout">Keep Browsing</button>
+        <button class="secondary-button checkout-back" type="button" data-action="checkout-back" data-checkout-step="cart">Back</button>
+        <button class="checkout-link checkout-next" type="button" data-action="checkout-next" data-checkout-step="payment">Continue</button>
+        <a class="checkout-link checkout-final" href="#" target="_blank" rel="noreferrer">Place Order</a>
+        <button class="secondary-button" type="button" data-action="close-checkout" data-checkout-dismiss>Keep Browsing</button>
       </div>
     </aside>
 
@@ -169,10 +265,20 @@ export function createHud({
   const searchPanel = root.querySelector('[data-panel="search"]');
   const searchInput = root.querySelector('input[type="search"]');
   const searchResults = root.querySelector(".search-results");
+  const previewToggle = root.querySelector(".preview-toggle");
+  const mobileStage = root.querySelector(".mobile-stage");
+  const mCatEyebrow = root.querySelector(".m-cat-eyebrow");
+  const mCatTitle = root.querySelector(".m-cat-title");
+  const mHeroPlaque = root.querySelector(".m-hero-plaque");
+  const mLanePlaque = root.querySelector(".m-lane-plaque");
   const optionSelections = new Map();
+  const checkoutSteps = ["cart", "details", "payment", "confirm"];
   let lastState = null;
   let previewedCategoryId = null;
   let activeProductId = null;
+  let checkoutStep = "cart";
+  let paymentMethod = "shopify";
+  let previewMode = "desktop";
   let layersExpanded = false;
   let quantity = 1;
   let interactionLocked = false;
@@ -199,6 +305,20 @@ export function createHud({
       return;
     }
 
+    const checkoutStepTarget = event.target.closest("[data-checkout-step]");
+    if (checkoutStepTarget) {
+      checkoutStep = checkoutStepTarget.dataset.checkoutStep;
+      renderCheckout(lastState);
+      return;
+    }
+
+    const paymentTarget = event.target.closest("[data-payment-method]");
+    if (paymentTarget) {
+      paymentMethod = paymentTarget.dataset.paymentMethod;
+      renderCheckout(lastState);
+      return;
+    }
+
     const actionTarget = event.target.closest("[data-action]");
     if (!actionTarget) return;
 
@@ -217,37 +337,109 @@ export function createHud({
       searchInput.focus();
     }
     if (action === "close-search") searchPanel.hidden = true;
-    if (action === "checkout") openCheckout();
-    if (action === "close-checkout") {
-      checkoutPanel.hidden = true;
-      render(lastState);
+    if (action === "checkout") openCheckout("cart");
+    if (action === "close-checkout") closeCheckout();
+    if (action === "remove-cart") removeCart();
+    if (action === "add-to-cart") openCheckout("cart");
+    if (action === "buy-now") openCheckout("details");
+    if (action === "checkout-back") stepCheckout(-1);
+    if (action === "checkout-next") stepCheckout(1);
+    if (action === "toggle-preview-mode") {
+      previewMode = previewMode === "desktop" ? "mobile" : "desktop";
+      applyPreviewMode();
     }
-    if (action === "add-to-cart") openCheckout();
     if (action === "category" && lastState) {
       closeTemporaryPanels();
       onCategory(lastState.activeCategoryId);
     }
     if (action === "prev") onStepProduct(-1);
     if (action === "next") onStepProduct(1);
-    if (action === "category-scroll-prev") onCategoryScroll?.(-1);
-    if (action === "category-scroll-next") onCategoryScroll?.(1);
+    if (action === "category-scroll-prev") {
+      onCategoryScroll?.(-1);
+      renderLanePlaque();
+    }
+    if (action === "category-scroll-next") {
+      onCategoryScroll?.(1);
+      renderLanePlaque();
+    }
     if (action === "toggle-layer-expand" && lastState) {
       const { product } = getProduct(lastState.activeProductId);
       layersExpanded = !layersExpanded;
       renderProductPanel(product, getCategory(lastState.activeCategoryId));
       onLayerExpandChange?.(product.id, layersExpanded);
     }
-    if (action === "decrement") {
-      quantity = Math.max(1, quantity - 1);
-      render(lastState);
+    if (action === "decrement") updateQuantity(-1);
+    if (action === "increment") updateQuantity(1);
+  });
+
+  checkoutPanel.addEventListener("click", (event) => {
+    if (interactionLocked) return;
+    const dismissTarget = event.target.closest("[data-checkout-dismiss]");
+    if (dismissTarget && checkoutPanel.contains(dismissTarget)) {
+      event.stopPropagation();
+      closeCheckout();
+      return;
     }
-    if (action === "increment") {
-      quantity += 1;
-      render(lastState);
+
+    const removeTarget = event.target.closest("[data-cart-remove]");
+    if (removeTarget && checkoutPanel.contains(removeTarget)) {
+      event.stopPropagation();
+      removeCart();
+      return;
     }
+
+    const quantityTarget = event.target.closest("[data-cart-quantity]");
+    if (quantityTarget && checkoutPanel.contains(quantityTarget)) {
+      event.stopPropagation();
+      updateQuantity(Number(quantityTarget.dataset.cartQuantity));
+      return;
+    }
+
+    const checkoutStepTarget = event.target.closest("[data-checkout-step]");
+    if (checkoutStepTarget && checkoutPanel.contains(checkoutStepTarget)) {
+      event.stopPropagation();
+      checkoutStep = checkoutStepTarget.dataset.checkoutStep;
+      renderCheckout(lastState);
+      return;
+    }
+
+    const paymentTarget = event.target.closest("[data-payment-method]");
+    if (paymentTarget && checkoutPanel.contains(paymentTarget)) {
+      event.stopPropagation();
+      paymentMethod = paymentTarget.dataset.paymentMethod;
+      renderCheckout(lastState);
+      return;
+    }
+
+    const actionTarget = event.target.closest("[data-action]");
+    if (!actionTarget || !checkoutPanel.contains(actionTarget)) return;
+    event.stopPropagation();
+    const action = actionTarget.dataset.action;
+    if (action === "close-checkout") closeCheckout();
+    if (action === "remove-cart") removeCart();
+    if (action === "checkout-back") stepCheckout(-1);
+    if (action === "checkout-next") stepCheckout(1);
+    if (action === "decrement") updateQuantity(-1);
+    if (action === "increment") updateQuantity(1);
+  });
+
+  checkoutPanel.querySelectorAll("[data-payment-method]").forEach((button) => {
+    button.addEventListener("pointerdown", () => {
+      if (interactionLocked) return;
+      paymentMethod = button.dataset.paymentMethod;
+      renderCheckout(lastState);
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      if (interactionLocked) return;
+      paymentMethod = button.dataset.paymentMethod;
+      renderCheckout(lastState);
+    });
   });
 
   searchInput.addEventListener("input", () => renderSearch(searchInput.value));
+  window.addEventListener("resize", applyMobileAttr);
+  applyPreviewMode();
 
   function render(state) {
     if (!state) return;
@@ -292,7 +484,41 @@ export function createHud({
     renderProductPanel(product, category);
     renderCheckout(state);
     renderSearch(searchInput.value);
+    renderMobileStage(state, product, activeCategory, subcollection);
     applyCategoryPreview();
+  }
+
+  // D55: floating DOM text for the portrait charcoal stage — replaces every 3D text surface.
+  function renderMobileStage(state, product, activeCategory, subcollection) {
+    applyMobileAttr();
+    if (state.mode !== "category") return;
+    mCatEyebrow.textContent = subcollection ? activeCategory.label.toUpperCase() : "COLLECTION";
+    mCatTitle.textContent = (subcollection?.label ?? activeCategory.label).toUpperCase();
+    mHeroPlaque.querySelector("strong").textContent = product.name;
+    mHeroPlaque.querySelector("span").textContent = displayPrice(product, activeCategory);
+    renderLanePlaque();
+  }
+
+  function renderLanePlaque() {
+    const lane = getLaneInfo?.();
+    if (!lane) {
+      mLanePlaque.hidden = true;
+      return;
+    }
+    mLanePlaque.hidden = false;
+    if (lane.isSubcollection) {
+      mLanePlaque.querySelector("strong").textContent = lane.item.label;
+      mLanePlaque.querySelector("span").textContent = `${lane.item.productIds.length} pieces`;
+    } else {
+      const laneCategory = lastState ? getCategory(lastState.activeCategoryId) : null;
+      mLanePlaque.querySelector("strong").textContent = lane.item.name;
+      mLanePlaque.querySelector("span").textContent = laneCategory ? displayPrice(lane.item, laneCategory) : "";
+    }
+  }
+
+  function displayPrice(product, category) {
+    const price = unitPrice(product, category, selectionFor(product.id));
+    return price === null ? String(product.price ?? "") : formatPkr(price);
   }
 
   function previewCategory(categoryId) {
@@ -327,19 +553,47 @@ export function createHud({
     expandButton.textContent = layersExpanded ? "Collapse Layers" : "Expand Layers";
     expandButton.setAttribute("aria-pressed", layersExpanded ? "true" : "false");
     productPanel.querySelector(".quantity-stepper strong").textContent = quantity;
-    productPanel.querySelector(".shopify-buy").href = productUrl(product);
     productPanel.querySelector(".whatsapp").href = whatsappUrl(product, category);
   }
 
   function renderCheckout(state) {
     if (!state) return;
     const { product, category } = getProduct(state.activeProductId);
-    checkoutPanel.querySelector("h2").textContent = product.name;
-    checkoutPanel.querySelector(".checkout-options").textContent = `${selectionSummary(product, category)} · Qty ${quantity}`;
+    const stepIndex = checkoutSteps.indexOf(checkoutStep);
+    checkoutPanel.dataset.checkoutStep = checkoutStep;
+    checkoutPanel.querySelector("h2").textContent = checkoutStep === "cart" ? "Cart" : checkoutStep === "details" ? "Details" : checkoutStep === "payment" ? "Payment" : "Confirm";
+    checkoutPanel.querySelectorAll(".checkout-steps [data-checkout-step]").forEach((button) => {
+      const index = checkoutSteps.indexOf(button.dataset.checkoutStep);
+      button.classList.toggle("is-active", button.dataset.checkoutStep === checkoutStep);
+      button.classList.toggle("is-complete", index < stepIndex);
+      button.setAttribute("aria-pressed", button.dataset.checkoutStep === checkoutStep ? "true" : "false");
+    });
+    checkoutPanel.querySelector(".checkout-back").dataset.checkoutStep = checkoutSteps[Math.max(0, stepIndex - 1)];
+    checkoutPanel.querySelector(".checkout-next").dataset.checkoutStep = checkoutSteps[Math.min(checkoutSteps.length - 1, stepIndex + 1)];
+    checkoutPanel.querySelectorAll(".checkout-stage").forEach((stage) => {
+      stage.hidden = stage.dataset.stage !== checkoutStep;
+    });
+    checkoutPanel.querySelectorAll("[data-payment-method]").forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.paymentMethod === paymentMethod);
+    });
+    checkoutPanel.querySelector(".cart-item-copy strong").textContent = product.name;
+    checkoutPanel.querySelector(".cart-item-copy small").textContent = `${category.label} · ${selectionSummary(product, category)}`;
+    checkoutPanel.querySelector(".cart-quantity-row strong").textContent = quantity;
+    const thumb = checkoutPanel.querySelector(".cart-thumb");
+    thumb.style.setProperty("--cart-thumb-image", product.image ? `url("${product.image}")` : "none");
     const price = unitPrice(product, category, selectionFor(product.id));
-    checkoutPanel.querySelector(".checkout-line strong").textContent =
-      price === null ? subtotal(product.price, quantity) : formatPkr(price * quantity);
-    checkoutPanel.querySelector(".checkout-link").href = productUrl(product);
+    const subtotalText = price === null ? subtotal(product.price, quantity) : formatPkr(price * quantity);
+    checkoutPanel.querySelectorAll(".checkout-line strong").forEach((item) => {
+      item.textContent = subtotalText;
+    });
+    checkoutPanel.querySelector(".confirm-card strong").textContent = product.name;
+    checkoutPanel.querySelector(".confirm-card small").textContent = `${selectionSummary(product, category)} · Qty ${quantity} · ${subtotalText}`;
+    const final = checkoutPanel.querySelector(".checkout-final");
+    final.href = paymentMethod === "shopify" ? productUrl(product) : whatsappUrl(product, category);
+    final.textContent = paymentMethod === "whatsapp" ? "Send to WhatsApp" : paymentMethod === "cod" ? "Request COD" : "Place Order";
+    checkoutPanel.querySelector(".checkout-back").hidden = checkoutStep === "cart";
+    checkoutPanel.querySelector(".checkout-next").hidden = checkoutStep === "confirm";
+    final.hidden = checkoutStep !== "confirm";
   }
 
   function renderSearch(query) {
@@ -384,17 +638,63 @@ export function createHud({
     onVariantChange(product.id, variantParams(product, category, selectionFor(product.id)));
   }
 
-  function openCheckout() {
+  function openCheckout(step = "cart") {
     if (!lastState) return;
+    checkoutStep = step;
     checkoutPanel.hidden = false;
     productPanel.hidden = true;
     searchPanel.hidden = true;
     renderCheckout(lastState);
   }
 
+  function closeCheckout() {
+    checkoutPanel.hidden = true;
+    render(lastState);
+  }
+
+  function removeCart() {
+    quantity = 1;
+    checkoutPanel.hidden = true;
+    render(lastState);
+  }
+
+  function stepCheckout(direction) {
+    const index = checkoutSteps.indexOf(checkoutStep);
+    checkoutStep = checkoutSteps[Math.min(checkoutSteps.length - 1, Math.max(0, index + direction))];
+    renderCheckout(lastState);
+  }
+
+  function updateQuantity(delta) {
+    quantity = Math.max(1, quantity + delta);
+    render(lastState);
+  }
+
   function closeTemporaryPanels() {
     searchPanel.hidden = true;
     checkoutPanel.hidden = true;
+  }
+
+  function isMobileLayout() {
+    return previewMode === "mobile" || window.innerWidth <= 760;
+  }
+
+  // data-mobile drives ALL portrait-only CSS (preview toggle AND real narrow screens),
+  // so mobile rules never need duplicating into media queries.
+  function applyMobileAttr() {
+    const mobile = isMobileLayout();
+    root.dataset.mobile = mobile ? "true" : "false";
+    document.querySelector("#app")?.setAttribute("data-mobile", mobile ? "true" : "false");
+    mobileStage.setAttribute("aria-hidden", mobile ? "false" : "true");
+  }
+
+  function applyPreviewMode() {
+    const mobile = previewMode === "mobile";
+    root.dataset.previewMode = previewMode;
+    document.querySelector("#app")?.setAttribute("data-preview-mode", previewMode);
+    previewToggle.textContent = mobile ? "Desktop" : "Mobile";
+    previewToggle.setAttribute("aria-pressed", mobile ? "true" : "false");
+    applyMobileAttr();
+    onPreviewModeChange?.(previewMode);
   }
 
   function ensureSelection(product, category) {

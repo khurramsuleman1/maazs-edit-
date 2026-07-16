@@ -15,12 +15,20 @@ const CATEGORY_CAMERA = new THREE.Vector3(-3.12, 1.82, 7.85);
 const CATEGORY_LOOK = new THREE.Vector3(-1.55, 1.62, 0);
 const CATEGORY_FRONTAL_CAMERA = new THREE.Vector3(1.15, 1.82, 10.0);
 const CATEGORY_FRONTAL_LOOK = new THREE.Vector3(1.15, 1.62, 0);
-const CATEGORY_MOBILE_CAMERA = new THREE.Vector3(-4.0, 1.82, 10.0);
-const CATEGORY_MOBILE_LOOK = new THREE.Vector3(-3.05, 1.62, 0);
-const CATEGORY_MOBILE_FRONTAL_CAMERA = new THREE.Vector3(0.9, 1.82, 12.5);
-const CATEGORY_MOBILE_FRONTAL_LOOK = new THREE.Vector3(0.9, 1.62, 0);
+// Portrait cameras hug the wall so it fills the 9:16 frame edge-to-edge: no black band above
+// the wall top (3.6), only a narrow floor strip below. Derived from fov 43° → halfH = tan(21.5°)·z.
+const CATEGORY_MOBILE_CAMERA = new THREE.Vector3(0.9, 1.66, 4.7);
+const CATEGORY_MOBILE_LOOK = new THREE.Vector3(0.9, 1.66, 0);
+const CATEGORY_MOBILE_FRONTAL_CAMERA = new THREE.Vector3(0.9, 1.66, 4.7);
+const CATEGORY_MOBILE_FRONTAL_LOOK = new THREE.Vector3(0.9, 1.66, 0);
 const VIEWER_CAMERA = new THREE.Vector3(0, 1.78, 6.55);
 const VIEWER_LOOK = new THREE.Vector3(0, 1.72, 0);
+const VIEWER_MOBILE_CAMERA = new THREE.Vector3(0, 1.82, 4.4);
+const VIEWER_MOBILE_LOOK = new THREE.Vector3(0, 1.82, 0);
+const MOBILE_CAMERA_ASPECT = 9 / 16;
+const MOBILE_BREAKPOINT = 760;
+const MOBILE_HOME_CAMERA_Z = 4.35;
+const MOBILE_HOME_Y = 1.5;
 
 // Content spans the full logo and shelf composition with a little room for hover lift.
 const HOME_HALF_W = 4.6;
@@ -31,6 +39,7 @@ const HOME_HALF_H = 1.58;
 // eases in. Portrait does NOT force-fit the logo (everything would go tiny; the mobile rail
 // handles navigation), so it only gets a gentle pull-back. Camera x/y and look stay locked.
 function homeCameraZ(aspect, fovYRad) {
+  if (aspect < 0.78) return MOBILE_HOME_CAMERA_Z;
   const halfTan = Math.tan(fovYRad / 2);
   const fitH = HOME_HALF_H / halfTan; // distance covering the vertical extent
   const fitW = HOME_HALF_W / (halfTan * aspect); // distance covering the horizontal extent
@@ -42,10 +51,30 @@ function homeCameraX(aspect) {
   return aspect < 0.78 ? -4 : HOME_CAMERA.x;
 }
 
+function homeCameraY(aspect) {
+  return aspect < 0.78 ? MOBILE_HOME_Y : HOME_CAMERA.y;
+}
+
+function homeLookY(aspect) {
+  return aspect < 0.78 ? MOBILE_HOME_Y : HOME_LOOK.y;
+}
+
 const SMALL_GRID = {
   startX: -0.4,
   stepX: 1.36,
   rowY: [2.47, 1.0],
+};
+// Portrait category array (ref 03): title on top, hero at ~2.05, then a vertical scroll column
+// below the hero — one full slot between hero bottom and the floor strip, neighbours fading at
+// the edges. edgeFade overrides the default 0.82 band, which would shrink even the centred tile
+// in this short lane.
+const MOBILE_GRID = {
+  x: 0.9,
+  startY: 0.55,
+  stepY: 0.85,
+  visibleTop: 0.95,
+  visibleBottom: -0.25,
+  edgeFade: 0.35,
 };
 const HERO_BAY_RIGHT_WALL_X = -1.39;
 const SMALL_BAY_HALF_WIDTH = 0.48;
@@ -106,7 +135,9 @@ export class GalleryScene {
     this.lastSignature = "";
     this.dragging = false;
     this.dragStartX = 0;
+    this.dragStartY = 0;
     this.dragLastX = 0;
+    this.dragLastY = 0;
     this.dragMoved = false;
     this.viewerOrbit = 0;
     this.hoveredEntry = null;
@@ -121,6 +152,9 @@ export class GalleryScene {
     this.categoryCameraIsFrontal = false;
     this.layerStackAnimations = new Set();
     this.layersExpanded = false;
+    this.previewMode = "desktop";
+    this.mobileLayout = false;
+    this.renderViewport = null;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -150,6 +184,7 @@ export class GalleryScene {
     this.scene.add(this.architecture, this.atmosphereGroup, this.logoGroup, this.introGroup, this.homeGroup, this.categoryGroup, this.viewerGroup, this.transitionGroup);
     this.createArchitecture();
     this.createSharedAtmosphere();
+    this.createMobileStage();
     this.createIntro();
     this.createHome();
     this.createLights();
@@ -187,15 +222,19 @@ export class GalleryScene {
     this.homeGroup.visible = state.mode === "home";
     this.categoryGroup.visible = state.mode === "category";
     this.viewerGroup.visible = state.mode === "viewer";
-    this.logoGroup.visible = state.mode === "intro" || state.mode === "home";
+    // D55: the wall logo and 3D intro text are desktop-only — mobile branding is DOM UI.
+    this.logoGroup.visible = (state.mode === "intro" || state.mode === "home") && !this.isMobileLayout();
 
     if (state.mode === "intro") {
       this.clickable = [];
       this.targetCamera.copy(HOME_CAMERA);
       this.targetCamera.x = homeCameraX(this.camera.aspect);
+      this.targetCamera.y = homeCameraY(this.camera.aspect);
       this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
       this.targetLook.copy(HOME_LOOK);
       this.targetLook.x = this.targetCamera.x;
+      this.targetLook.y = homeLookY(this.camera.aspect);
+      this.applyHomeLayout();
       this.setIntroLayout();
       this.resetHomeGalleryReveal();
       this.startTransition(previousState, outgoingClone, null, null, null);
@@ -206,10 +245,13 @@ export class GalleryScene {
       this.clickable = [...this.homeClickTargets];
       this.targetCamera.copy(HOME_CAMERA);
       this.targetCamera.x = homeCameraX(this.camera.aspect);
+      this.targetCamera.y = homeCameraY(this.camera.aspect);
       // Re-entering home: refit the dolly for the live viewport so logo + bays frame fully.
       this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
       this.targetLook.copy(HOME_LOOK);
       this.targetLook.x = this.targetCamera.x;
+      this.targetLook.y = homeLookY(this.camera.aspect);
+      this.applyHomeLayout();
       if (previousState?.mode === "intro") {
         this.introGroup.visible = true;
         this.prepareHomeGalleryReveal();
@@ -241,9 +283,40 @@ export class GalleryScene {
     const { product, category } = getProduct(state.activeProductId);
     this.buildViewer(category, product);
     this.viewerOrbit = 0;
-    this.targetCamera.copy(VIEWER_CAMERA);
-    this.targetLook.copy(VIEWER_LOOK);
+    this.targetCamera.copy(this.isMobileLayout() ? VIEWER_MOBILE_CAMERA : VIEWER_CAMERA);
+    this.targetLook.copy(this.isMobileLayout() ? VIEWER_MOBILE_LOOK : VIEWER_LOOK);
     this.startTransition(previousState, outgoingClone, sourceClone, this.viewerBay, this.viewerProduct);
+  }
+
+  setPreviewMode(mode = "desktop") {
+    this.previewMode = mode === "mobile" ? "mobile" : "desktop";
+    this.resize();
+  }
+
+  isMobileLayout() {
+    return this.previewMode === "mobile" || window.innerWidth <= MOBILE_BREAKPOINT;
+  }
+
+  mobileFrame(width, height) {
+    const frameWidth = Math.min(width, height * MOBILE_CAMERA_ASPECT);
+    const frameHeight = Math.min(height, frameWidth / MOBILE_CAMERA_ASPECT);
+    return {
+      left: (width - frameWidth) / 2,
+      top: (height - frameHeight) / 2,
+      width: frameWidth,
+      height: frameHeight,
+    };
+  }
+
+  eventToPointer(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    const viewport = this.renderViewport ?? { left: 0, top: 0, width: rect.width, height: rect.height };
+    const x = event.clientX - rect.left - viewport.left;
+    const y = event.clientY - rect.top - viewport.top;
+    if (x < 0 || y < 0 || x > viewport.width || y > viewport.height) return false;
+    this.pointer.x = (x / viewport.width) * 2 - 1;
+    this.pointer.y = -(y / viewport.height) * 2 + 1;
+    return true;
   }
 
   activeGroup(mode) {
@@ -461,19 +534,31 @@ export class GalleryScene {
     this.onInteractionLock?.(false);
   }
 
-  scrollCategoryBy(direction) {
-    const stepX = this.gridLayout?.stepX ?? SMALL_GRID.stepX;
-    this.scrollCategoryTo(this.scrollOffset + direction * stepX * 3);
-  }
+	  // D55: the DOM lane plaque (hud.js .m-lane-plaque) shows the item centred in the
+	  // portrait scroll lane; index derives from the scroll offset.
+	  getMobileLaneItem() {
+	    if (!this.gridLayout?.stepY || !this.categoryProducts?.length) return null;
+	    const index = Math.min(
+	      this.categoryProducts.length - 1,
+	      Math.max(0, Math.round(this.scrollOffset / this.gridLayout.stepY)),
+	    );
+	    return { item: this.categoryProducts[index], index, isSubcollection: Boolean(this.categoryShowingSubcollections) };
+	  }
+
+	  scrollCategoryBy(direction) {
+	    // Portrait shows a single full tile under the hero, so scroll one slot at a time.
+	    const step = this.gridLayout?.stepY ? this.gridLayout.stepY : (this.gridLayout?.stepX ?? SMALL_GRID.stepX) * 3;
+	    this.scrollCategoryTo(this.scrollOffset + direction * step);
+	  }
 
   scrollCategoryTo(value) {
     if (this.state?.mode !== "category") return;
     const nextOffset = THREE.MathUtils.clamp(value, 0, this.maxScroll);
-    if (Math.abs(nextOffset - this.scrollOffset) < 0.001) return;
-    this.scrollOffset = nextOffset;
-    if (this.gridTrack) this.gridTrack.position.x = -this.scrollOffset;
-    this.updateCategoryGrid();
-  }
+	    if (Math.abs(nextOffset - this.scrollOffset) < 0.001) return;
+	    this.scrollOffset = nextOffset;
+	    this.applyGridTrackPosition();
+	    this.updateCategoryGrid();
+	  }
 
   prepareCategory(categoryId, subcollectionId = null) {
     const cacheKey = `${categoryId}:${subcollectionId ?? "all"}`;
@@ -675,6 +760,7 @@ export class GalleryScene {
     wallTone.userData.excludeFromTransition = true;
     this.atmosphereGroup.add(wallTone);
 
+    this.atmosphereFixtures = [];
     [-4.2, -2.8, -1.35, 0.05, 1.5, 2.9, 4.05].forEach((x) => {
       const fixture = this.createHomeFixture(x);
       const pool = this.createWallLightPool(x, 2.15, 1.45, 2.75, 0.16);
@@ -682,8 +768,55 @@ export class GalleryScene {
       fixture.userData.excludeFromTransition = true;
       pool.userData.excludeFromTransition = true;
       key.userData.excludeFromTransition = true;
+      this.atmosphereFixtures.push(fixture);
       this.atmosphereGroup.add(fixture, pool, key);
     });
+  }
+
+  // D55 mobile stage: portrait hides the gallery architecture entirely and floats products
+  // over a charcoal studio backdrop; all text becomes DOM UI (see hud.js .mobile-stage).
+  createMobileStage() {
+    this.mobileStage = new THREE.Group();
+    this.mobileStage.visible = false;
+    this.mobileStage.userData.excludeFromTransition = true;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 1024;
+    const ctx = canvas.getContext("2d");
+    const base = ctx.createLinearGradient(0, 0, 0, 1024);
+    base.addColorStop(0, "#26231f");
+    base.addColorStop(0.55, "#1d1a18");
+    base.addColorStop(1, "#141211");
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, 512, 1024);
+    // Soft warm pool behind the product zone so pieces separate from the charcoal.
+    const glow = ctx.createRadialGradient(256, 400, 40, 256, 400, 460);
+    glow.addColorStop(0, "rgba(90, 76, 58, 0.55)");
+    glow.addColorStop(1, "rgba(90, 76, 58, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, 512, 1024);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    const backdrop = new THREE.Mesh(
+      new THREE.PlaneGeometry(16, 16),
+      new THREE.MeshBasicMaterial({ map: texture, depthWrite: false }),
+    );
+    backdrop.position.set(0, 1.6, -1.6);
+    backdrop.userData.excludeFromTransition = true;
+    this.mobileStage.add(backdrop);
+
+    // Stage lighting: the gallery's warm pools/keys live in the hidden atmosphere group,
+    // and dark pieces (bronze SVGs, black STLs) vanish on charcoal without their own key.
+    // These lights toggle with the group, so desktop is untouched.
+    const stageAmbient = new THREE.AmbientLight(0xfff3e0, 0.7);
+    const stageKey = new THREE.DirectionalLight(0xfff1dc, 1.45);
+    stageKey.position.set(2, 6, 9);
+    const stageFill = new THREE.DirectionalLight(0xe8d9c2, 0.55);
+    stageFill.position.set(-6, 2, 7);
+    this.mobileStage.add(stageAmbient, stageKey, stageFill);
+    this.scene.add(this.mobileStage);
   }
 
   createIntro() {
@@ -723,20 +856,24 @@ export class GalleryScene {
     if (!this.wallLogo || !this.introCopy) return;
     const portrait = this.camera.aspect < 0.78;
     if (portrait) {
-      this.setLogoPlacement(this.introLogoPlacement());
-      this.introCopy.position.set(-3.9, -0.05, 0);
-      this.introCopy.scale.setScalar(0.5);
-      this.resetIntroCopy();
+      // D55: portrait intro is fully DOM (logo image + copy in hud.js .m-intro);
+      // the 3D copy and wall logo stay hidden so nothing fights the charcoal stage.
+      this.introCopy.visible = false;
       return;
     }
+    this.introCopy.visible = true;
     this.setLogoPlacement(this.introLogoPlacement());
     this.introCopy.position.set(0, 0, 0);
     this.introCopy.scale.setScalar(1);
+    this.introCopyItems.forEach((item) => {
+      item.userData.introBasePosition = item.userData.desktopBasePosition.clone();
+    });
     this.resetIntroCopy();
   }
 
   registerIntroCopyItem(mesh) {
     mesh.userData.introBasePosition = mesh.position.clone();
+    mesh.userData.desktopBasePosition = mesh.position.clone();
     mesh.userData.introBaseScale = mesh.scale.clone();
     this.introCopyItems.push(mesh);
   }
@@ -751,11 +888,13 @@ export class GalleryScene {
 
   introLogoPlacement() {
     if (this.camera.aspect < 0.78) {
+      // Smaller and lower than before: keeps the full circle inside the 9:16 frame
+      // (visible top ≈ 3.21 at look-y 1.5) and clear of the HUD chip row.
       return {
-        position: new THREE.Vector3(-4, 2.2, 0.045),
-        scale: new THREE.Vector3(0.72, 0.72, 0.72),
-        poolPosition: new THREE.Vector3(-4, 2.18, 0.02),
-        poolScale: new THREE.Vector3(0.78, 0.78, 1),
+        position: new THREE.Vector3(-4, 2.08, 0.045),
+        scale: new THREE.Vector3(0.55, 0.55, 0.55),
+        poolPosition: new THREE.Vector3(-4, 2.05, 0.02),
+        poolScale: new THREE.Vector3(0.62, 0.62, 1),
       };
     }
     return {
@@ -767,6 +906,16 @@ export class GalleryScene {
   }
 
   galleryLogoPlacement() {
+    if (this.camera.aspect < 0.78) {
+      // Portrait Gallery View has no room for the wall logo (the DOM BA chip covers branding);
+      // the intro→home transition shrinks it away instead of parking it behind the sections.
+      return {
+        position: new THREE.Vector3(-4, 3.3, 0.04),
+        scale: new THREE.Vector3(0.001, 0.001, 0.001),
+        poolPosition: new THREE.Vector3(-4, 3.3, 0.02),
+        poolScale: new THREE.Vector3(0.001, 0.001, 1),
+      };
+    }
     return {
       position: new THREE.Vector3(-4.2, 1.78, 0.04),
       scale: new THREE.Vector3(0.624, 0.624, 0.624),
@@ -776,7 +925,8 @@ export class GalleryScene {
   }
 
   setLogoPlacement(placement) {
-    this.logoGroup.visible = true;
+    // D55: the wall logo never shows on the mobile stage — branding is the DOM header.
+    this.logoGroup.visible = !this.isMobileLayout();
     this.wallLogo.position.copy(placement.position);
     this.wallLogo.scale.copy(placement.scale);
     if (this.logoPool) {
@@ -823,25 +973,59 @@ export class GalleryScene {
     shelf.position.set(0, 0.05, 0.42);
     shelf.castShadow = true;
     objects.add(shelf);
-    const panther = this.addHomeProduct(objects, "object-panther", { width: 0.92, height: 0.64, big: true, homeDark: true }, 0, 0.64, 0.76, true, 2.75);
-    panther.rotation.y = Math.PI / 2;
+	    const panther = this.addHomeProduct(objects, "object-panther", { width: 0.92, height: 0.64, big: true, homeDark: true }, 0, 0.64, 0.76, true, 2.75);
+	    panther.rotation.y = Math.PI / 2;
 
-    this.clickable = [...this.homeClickTargets];
-  }
+	    // D55: portrait section labels are DOM UI (hud.js .m-home-labels), not 3D text.
 
-  createHomeZone(categoryId, x, width, height) {
-    const zone = new THREE.Group();
-    zone.position.set(x, 1.75, 0);
-    zone.userData = { isHomeZone: true, categoryId };
-    const hit = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.5), this.materials.hit);
-    hit.position.set(0, 0, 0.24);
-    hit.userData = { action: "category", categoryId };
-    zone.add(hit);
-    this.homeClickTargets.push(hit);
-    this.homeBays.set(categoryId, zone);
-    this.homeZones.set(categoryId, { group: zone, hit, products: [] });
-    this.homeGroup.add(zone);
-    return zone;
+	    this.applyHomeLayout();
+	    this.clickable = [...this.homeClickTargets];
+	  }
+
+	  createHomeZone(categoryId, x, width, height) {
+	    const zone = new THREE.Group();
+	    zone.position.set(x, 1.75, 0);
+	    zone.userData = { isHomeZone: true, categoryId, desktopPosition: zone.position.clone() };
+	    const hit = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.5), this.materials.hit);
+	    hit.position.set(0, 0, 0.24);
+	    hit.userData = { action: "category", categoryId };
+	    zone.add(hit);
+	    this.homeClickTargets.push(hit);
+	    this.homeBays.set(categoryId, zone);
+	    this.homeZones.set(categoryId, { group: zone, hit, products: [], layoutScale: 1 });
+	    this.homeGroup.add(zone);
+	    return zone;
+	  }
+
+  applyHomeLayout() {
+    if (!this.homeZones) return;
+    const mobile = this.isMobileLayout();
+    // Portrait Gallery View (ref 02): four vertical sections on the logo wall slot (x −4),
+    // one hero per section with a small category label above it, floor strip at the bottom.
+    // Zone y compensates each hero's local offset so hero centres land evenly spaced.
+    // Hero centres land at 25.25 / 46.25 / 67.25 / 88.25% of the 9:16 frame so each sits
+    // inside its DOM header band (headers at 12/33/54/75% — see .m-home-labels in styles.css).
+    const mobilePlacement = {
+      "wall-art": { x: -4, y: 2.23, scale: 0.285 },
+      "digital-art": { x: -4, y: 1.54, scale: 0.315 },
+      "layered-art": { x: -4, y: 0.9, scale: 0.3 },
+      // The panther block sits ~0.4 in front of the wall plane, so perspective drops it
+      // lower/bigger than wall-plane math — placed empirically to centre at ~88%.
+      "3d-objects": { x: -4, y: 0.1, scale: 0.5 },
+    };
+    this.homeZones.forEach((entry, categoryId) => {
+      const placement = mobilePlacement[categoryId];
+      entry.layoutScale = mobile && placement ? placement.scale : 1;
+      entry.revealIndex = ["wall-art", "digital-art", "layered-art", "3d-objects"].indexOf(categoryId);
+      const position = mobile && placement ? new THREE.Vector3(placement.x, placement.y, 0) : entry.group.userData.desktopPosition;
+      entry.group.position.copy(position);
+      if (!this.transition) entry.group.scale.setScalar(entry.layoutScale);
+      // Portrait sections show only the hero piece — the desktop side clusters would
+      // shrink into unreadable clutter at section scale.
+      entry.products.forEach((item) => {
+        item.object.visible = !mobile || Boolean(item.object.userData.transitionProduct);
+      });
+    });
   }
 
   addHomeProduct(zone, productId, bounds, x, y, z, transitionProduct = false, scale = 1) {
@@ -863,14 +1047,20 @@ export class GalleryScene {
   prepareHomeGalleryReveal() {
     this.setLogoPlacement(this.introLogoPlacement());
     this.homeGalleryRevealItems = [];
+    const mobile = this.isMobileLayout();
     const order = ["wall-art", "digital-art", "layered-art", "3d-objects"];
     order.forEach((categoryId) => {
       const zone = this.homeZones.get(categoryId);
-      if (!zone) return;
-      zone.revealProgress = 1;
-      zone.group.visible = true;
-      zone.group.scale.setScalar(1);
+	      if (!zone) return;
+	      zone.revealProgress = 1;
+	      zone.group.visible = true;
+	      zone.group.scale.setScalar(zone.layoutScale ?? 1);
       zone.products.forEach((item) => {
+        // Portrait sections only ever show/reveal the hero piece.
+        if (mobile && !item.object.userData.transitionProduct) {
+          item.object.visible = false;
+          return;
+        }
         item.object.visible = false;
         item.object.position.copy(item.basePosition);
         item.object.position.z += PRODUCT_LATCH_DISTANCE;
@@ -881,12 +1071,13 @@ export class GalleryScene {
   }
 
   completeHomeGalleryReveal() {
+    const mobile = this.isMobileLayout();
     this.homeZones?.forEach((entry) => {
-      entry.revealProgress = 1;
-      entry.group.visible = true;
-      entry.group.scale.setScalar(1);
+	      entry.revealProgress = 1;
+	      entry.group.visible = true;
+	      entry.group.scale.setScalar(entry.layoutScale ?? 1);
       entry.products.forEach((item) => {
-        item.object.visible = true;
+        item.object.visible = !mobile || Boolean(item.object.userData.transitionProduct);
         item.object.position.copy(item.basePosition);
         item.object.scale.copy(item.baseScale);
       });
@@ -999,34 +1190,41 @@ export class GalleryScene {
     this.gridTrack = new THREE.Group();
     this.hoveredEntry = null;
     this.clickable = [];
-    const activeSubcollection = getSubcollection(category, this.state.activeSubcollectionId);
-    const showingSubcollections = Boolean(category.subcollections?.length && !activeSubcollection);
-    const lead = activeSubcollection ? activeProduct ?? getSubcollectionHeroProduct(category, activeSubcollection.id) : activeProduct ?? getHeroProduct(category);
-    const viewCopy = activeSubcollection ?? category;
+	    const activeSubcollection = getSubcollection(category, this.state.activeSubcollectionId);
+	    const showingSubcollections = Boolean(category.subcollections?.length && !activeSubcollection);
+	    const lead = activeSubcollection ? activeProduct ?? getSubcollectionHeroProduct(category, activeSubcollection.id) : activeProduct ?? getHeroProduct(category);
+	    const viewCopy = activeSubcollection ?? category;
+	    const mobile = this.isMobileLayout();
 
-    this.categoryGroup.add(this.createWallLightPool(-4.78, 2.12, 2.42, 1.9, 0.16));
-    const desc = this.createDescriptionPanel(viewCopy, lead);
-    desc.position.set(-4.82, 2.54, 0.03);
-    this.categoryDescription = desc;
-    this.categoryGroup.add(desc);
+	    this.categoryGroup.add(this.createWallLightPool(mobile ? 0.9 : -4.78, mobile ? 2.1 : 2.12, mobile ? 2.0 : 2.42, mobile ? 1.8 : 1.9, 0.16));
+	    // D55: portrait titles/plaques are DOM UI (hud.js .m-category); the 3D description
+	    // panel and extruded labels are desktop-only.
+	    if (!mobile) {
+	      const desc = this.createDescriptionPanel(viewCopy, lead);
+	      desc.position.set(-4.82, 2.54, 0.03);
+	      this.categoryDescription = desc;
+	      this.categoryGroup.add(desc);
+	    } else {
+	      this.categoryDescription = null;
+	    }
 
-    const bigBay = this.createWallMount({
-      x: -2.55,
-      y: 1.735,
-      width: 2.12,
-      height: 2.35,
-      label: lead.name.toUpperCase(),
-      labelSize: 0.13,
-      labelDepth: 0.04,
-      labelOffset: 0.11,
-    });
-    const isObjectCategory = category.id === "3d-objects";
-    const bigProduct = this.createProductDisplay(lead, { width: 1.64, height: 1.92, big: true });
-    bigProduct.userData.transitionProduct = true;
-    bigProduct.position.set(0, isObjectCategory ? 0.12 : 0, (isObjectCategory ? 0.52 : 0.105) + PRODUCT_WALL_CLEARANCE);
-    if (isObjectCategory) {
-      bigBay.add(this.createFloatingShelf({ width: 1.82, depth: 0.72, thickness: 0.09, y: -0.3, z: 0.42 }));
-    }
+	    const bigBay = this.createWallMount({
+	      x: mobile ? 0.9 : -2.55,
+	      y: mobile ? 2.05 : 1.735,
+	      width: mobile ? 1.4 : 2.12,
+	      height: mobile ? 1.3 : 2.35,
+	      label: mobile ? null : lead.name.toUpperCase(),
+	      labelSize: 0.13,
+	      labelDepth: 0.04,
+	      labelOffset: 0.11,
+	    });
+	    const isObjectCategory = category.id === "3d-objects";
+	    const bigProduct = this.createProductDisplay(lead, { width: mobile ? 1.0 : 1.64, height: mobile ? 1.18 : 1.92, big: true });
+	    bigProduct.userData.transitionProduct = true;
+	    bigProduct.position.set(0, isObjectCategory ? 0.1 : 0, (isObjectCategory ? (mobile ? 0.46 : 0.52) : 0.105) + PRODUCT_WALL_CLEARANCE);
+	    if (isObjectCategory) {
+	      bigBay.add(this.createFloatingShelf({ width: mobile ? 1.18 : 1.82, depth: mobile ? 0.58 : 0.72, thickness: 0.09, y: mobile ? -0.24 : -0.3, z: 0.42 }));
+	    }
     bigBay.add(bigProduct);
     const bigHit = new THREE.Mesh(new THREE.BoxGeometry(2.35, 2.75, 0.5), this.materials.hit);
     bigHit.position.set(0, 0, 0.28);
@@ -1034,65 +1232,68 @@ export class GalleryScene {
     bigBay.add(bigHit);
     this.clickable.push(bigHit);
     this.categoryBigBay = bigBay;
-    this.categoryBigProduct = bigProduct;
-    this.categoryGroup.add(bigBay);
-    this.categoryGroup.add(this.createWallLightPool(-2.55, 1.86, 2.28, 2.65, 0.16));
-    this.categoryGroup.add(this.createRowWash(new THREE.Vector3(5.0, 3.1, 1.4), new THREE.Vector3(5.0, 2.35, 0.04), 2.2));
-    this.categoryGroup.add(this.createRowWash(new THREE.Vector3(5.0, 1.9, 1.6), new THREE.Vector3(5.0, 1.0, 0.04), 1.8));
-    this.categoryGroup.add(this.gridTrack);
+	    this.categoryBigProduct = bigProduct;
+	    this.categoryGroup.add(bigBay);
+	    this.categoryGroup.add(this.createWallLightPool(mobile ? 0.9 : -2.55, mobile ? 2.05 : 1.86, mobile ? 1.6 : 2.28, mobile ? 1.7 : 2.65, 0.16));
+	    if (!mobile) {
+	      this.categoryGroup.add(this.createRowWash(new THREE.Vector3(5.0, 3.1, 1.4), new THREE.Vector3(5.0, 2.35, 0.04), 2.2));
+	      this.categoryGroup.add(this.createRowWash(new THREE.Vector3(5.0, 1.9, 1.6), new THREE.Vector3(5.0, 1.0, 0.04), 1.8));
+	    }
+	    this.categoryGroup.add(this.gridTrack);
 
     const products = showingSubcollections ? category.subcollections : getSubcollectionProducts(category, activeSubcollection?.id);
     if (this.gridBays) this.gridBays.forEach((entry) => this.disposeGridBay(entry.bay));
     this.categoryProducts = products;
     this.categoryShowingSubcollections = showingSubcollections;
-    this.gridLayout =
-      !showingSubcollections && products.length <= 6
-        ? { startX: -0.18, stepX: 1.05, rowY: [2.46, 1.02] }
-        : SMALL_GRID;
+	    this.gridLayout = mobile
+	      ? MOBILE_GRID
+	      : !showingSubcollections && products.length <= 6
+	        ? { startX: -0.18, stepX: 1.05, rowY: [2.46, 1.02] }
+	        : SMALL_GRID;
     this.bigHit = bigHit;
     this.gridBays = new Map();
     this.gridHitEntries = [];
     this.gridHittables = [];
     this.pendingGridBuilds.clear();
-    this.maxScroll = Math.max(0, (Math.ceil(products.length / 2) - 4) * this.gridLayout.stepX);
+	    this.maxScroll = mobile
+	      ? Math.max(0, (products.length - 1) * this.gridLayout.stepY)
+	      : Math.max(0, (Math.ceil(products.length / 2) - 4) * this.gridLayout.stepX);
     // Windowed virtualization: only the product bays near the scroll window are built (see
     // updateCategoryGrid). With 148 Wall Art products, eagerly building every bay (a fetch + SVG
     // extrude each) was the load cost — now ~9 columns are live at a time.
-    this.gridTrack.position.x = -this.scrollOffset;
+	    this.applyGridTrackPosition();
     this.updateCategoryGrid();
   }
 
-  // Build one wall-mounted product group (extruded SVG / poster / STL) and return its group + hit mesh.
-  buildGridBay(item, index) {
-    const row = index % 2;
-    const col = Math.floor(index / 2);
-    const layout = this.gridLayout ?? SMALL_GRID;
-    const x = layout.startX + col * layout.stepX;
-    const y = layout.rowY[row];
-    const product = this.categoryShowingSubcollections ? getSubcollectionHeroProduct(getCategory(this.state.activeCategoryId), item.id) : item;
-    const bay = this.createWallMount({
-      x,
-      y,
-      width: 0.9,
-      height: 0.98,
-      label: (this.categoryShowingSubcollections ? item.label : product.name).toUpperCase(),
-      labelSize: 0.07,
-      labelDepth: 0.026,
-      labelOffset: 0.1,
-    });
+	  // Build one wall-mounted product group (extruded SVG / poster / STL) and return its group + hit mesh.
+	  buildGridBay(item, index) {
+	    const { x, y } = this.gridPositionForIndex(index);
+	    const mobile = this.isMobileLayout();
+	    const product = this.categoryShowingSubcollections ? getSubcollectionHeroProduct(getCategory(this.state.activeCategoryId), item.id) : item;
+	    const bay = this.createWallMount({
+	      x,
+	      y,
+	      width: mobile ? 0.98 : 0.9,
+	      height: mobile ? 1.04 : 0.98,
+	      // D55: portrait tile names render as the DOM lane plaque, not 3D text.
+	      label: mobile ? null : (this.categoryShowingSubcollections ? item.label : product.name).toUpperCase(),
+	      labelSize: 0.07,
+	      labelDepth: 0.026,
+	      labelOffset: 0.1,
+	    });
     const isObjectProduct = product.kind === "object";
     // restY: shelf top in display space — shelf centre y 0.08 + half thickness 0.0325, minus the
     // display group's own y offset (0.08). Keeps STLs standing ON the slab, not through it.
-    const display = this.createProductDisplay(product, {
-      width: isObjectProduct ? 0.62 : 0.58,
-      height: isObjectProduct ? 0.58 : 0.68,
-      big: false,
-      ...(isObjectProduct ? { restY: 0.0325 } : {}),
-    });
+	    const display = this.createProductDisplay(product, {
+	      width: isObjectProduct ? (mobile ? 0.6 : 0.62) : mobile ? 0.7 : 0.58,
+	      height: isObjectProduct ? (mobile ? 0.56 : 0.58) : mobile ? 0.78 : 0.68,
+	      big: false,
+	      ...(isObjectProduct ? { restY: 0.0325 } : {}),
+	    });
     display.userData.transitionProduct = true;
     display.position.set(0, isObjectProduct ? 0.08 : 0, (isObjectProduct ? 0.44 : 0.105) + PRODUCT_WALL_CLEARANCE);
     if (isObjectProduct) {
-      bay.add(this.createFloatingShelf({ width: 0.76, depth: 0.5, thickness: 0.065, y: 0.08, z: 0.32 }));
+	      bay.add(this.createFloatingShelf({ width: mobile ? 0.68 : 0.76, depth: mobile ? 0.46 : 0.5, thickness: 0.065, y: 0.08, z: 0.32 }));
     }
     bay.add(display);
     bay.add(this.createWallLightPool(0, 0.16, 0.88, 1.1, 0.12));
@@ -1100,7 +1301,7 @@ export class GalleryScene {
     hoverGlow.position.z = 0.032;
     hoverGlow.visible = false;
     bay.add(hoverGlow);
-    if (this.categoryShowingSubcollections) {
+    if (this.categoryShowingSubcollections && !mobile) {
       const count = this.createExtrudedText(`${item.productIds.length} PIECES`, 0.06, 0.012, this.materials.wallTextGold);
       centerGeometry(count.geometry);
       count.position.set(0, -0.34, 0.045);
@@ -1121,7 +1322,32 @@ export class GalleryScene {
       edgeScale: 1,
       revealProgress: 1,
       revealIndex: index,
-    };
+	    };
+	  }
+
+  gridPositionForIndex(index) {
+    const layout = this.gridLayout ?? SMALL_GRID;
+    if (layout.stepY) {
+      return { x: layout.x, y: layout.startY - index * layout.stepY };
+    }
+    const row = index % 2;
+    const col = Math.floor(index / 2);
+    return { x: layout.startX + col * layout.stepX, y: layout.rowY[row] };
+  }
+
+  visibleGridPosition(index) {
+    const position = this.gridPositionForIndex(index);
+    if (this.gridLayout?.stepY) return { x: position.x, y: position.y + this.scrollOffset };
+    return { x: position.x - this.scrollOffset, y: position.y };
+  }
+
+  applyGridTrackPosition() {
+    if (!this.gridTrack) return;
+    if (this.gridLayout?.stepY) {
+      this.gridTrack.position.set(0, this.scrollOffset, 0);
+    } else {
+      this.gridTrack.position.set(-this.scrollOffset, 0, 0);
+    }
   }
 
   // Dispose a grid bay's per-mesh geometry (the heavy extruded SVG) and its NON-shared materials.
@@ -1139,24 +1365,27 @@ export class GalleryScene {
 
   // Keep only the columns within HALF world-units of the scroll centre built; drop ones that
   // scroll a whole column past it (hysteresis avoids thrash at the edge). Runs on build/scroll/resize.
-  updateCategoryGrid() {
-    if (this.state?.mode !== "category" || !this.categoryProducts || !this.gridBays) return;
-    if (this.gridTrack) this.gridTrack.position.x = -this.scrollOffset;
-    const rightEdge = this.camera.aspect < 0.78 ? 4.6 : 8.9;
-    this.categoryProducts.forEach((item, index) => {
-      const layout = this.gridLayout ?? SMALL_GRID;
-      const x = layout.startX + Math.floor(index / 2) * layout.stepX;
-      const visibleX = x - this.scrollOffset;
-      const near = visibleX >= HERO_GRID_VANISH_X - GRID_EDGE_SCALE_DISTANCE && visibleX <= rightEdge + GRID_EDGE_SCALE_DISTANCE;
-      if (near) {
-        if (!this.gridBays.has(index)) {
-          this.queueGridBayBuild(item, index);
-          return;
-        }
-        const entry = this.gridBays.get(index);
-        entry.edgeScale = gridEdgeScale(visibleX, rightEdge);
-        entry.hit.visible = entry.edgeScale > 0.45;
-      } else {
+	  updateCategoryGrid() {
+	    if (this.state?.mode !== "category" || !this.categoryProducts || !this.gridBays) return;
+	    this.applyGridTrackPosition();
+	    const mobile = Boolean(this.gridLayout?.stepY);
+	    const rightEdge = this.camera.aspect < 0.78 ? 4.6 : 8.9;
+	    const topEdge = this.gridLayout?.visibleTop ?? 2.18;
+	    const bottomEdge = this.gridLayout?.visibleBottom ?? -1.18;
+	    this.categoryProducts.forEach((item, index) => {
+	      const visible = this.visibleGridPosition(index);
+	      const near = mobile
+	        ? visible.y >= bottomEdge - this.gridLayout.stepY && visible.y <= topEdge + this.gridLayout.stepY
+	        : visible.x >= HERO_GRID_VANISH_X - GRID_EDGE_SCALE_DISTANCE && visible.x <= rightEdge + GRID_EDGE_SCALE_DISTANCE;
+	      if (near) {
+	        if (!this.gridBays.has(index)) {
+	          this.queueGridBayBuild(item, index);
+	          return;
+	        }
+	        const entry = this.gridBays.get(index);
+	        entry.edgeScale = mobile ? gridEdgeScaleY(visible.y, topEdge, bottomEdge, this.gridLayout?.edgeFade) : gridEdgeScale(visible.x, rightEdge);
+	        entry.hit.visible = entry.edgeScale > 0.45;
+	      } else {
         this.pendingGridBuilds.delete(index);
         if (!this.gridBays.has(index)) return;
         const entry = this.gridBays.get(index);
@@ -1183,22 +1412,25 @@ export class GalleryScene {
     });
   }
 
-  buildNextQueuedGridBay() {
+	  buildNextQueuedGridBay() {
     if (this.state?.mode !== "category" || !this.categoryProducts || !this.gridBays) {
       this.pendingGridBuilds.clear();
       return;
     }
-    const rightEdge = this.camera.aspect < 0.78 ? 4.6 : 8.9;
-    for (const [index, queued] of this.pendingGridBuilds) {
-      this.pendingGridBuilds.delete(index);
-      const layout = this.gridLayout ?? SMALL_GRID;
-      const x = layout.startX + Math.floor(index / 2) * layout.stepX;
-      const visibleX = x - this.scrollOffset;
-      const near = visibleX >= HERO_GRID_VANISH_X - GRID_EDGE_SCALE_DISTANCE && visibleX <= rightEdge + GRID_EDGE_SCALE_DISTANCE;
-      if (!near || this.gridBays.has(index)) continue;
+	    const mobile = Boolean(this.gridLayout?.stepY);
+	    const rightEdge = this.camera.aspect < 0.78 ? 4.6 : 8.9;
+	    const topEdge = this.gridLayout?.visibleTop ?? 2.18;
+	    const bottomEdge = this.gridLayout?.visibleBottom ?? -1.18;
+	    for (const [index, queued] of this.pendingGridBuilds) {
+	      this.pendingGridBuilds.delete(index);
+	      const visible = this.visibleGridPosition(index);
+	      const near = mobile
+	        ? visible.y >= bottomEdge - this.gridLayout.stepY && visible.y <= topEdge + this.gridLayout.stepY
+	        : visible.x >= HERO_GRID_VANISH_X - GRID_EDGE_SCALE_DISTANCE && visible.x <= rightEdge + GRID_EDGE_SCALE_DISTANCE;
+	      if (!near || this.gridBays.has(index)) continue;
 
-      const entry = this.buildGridBay(queued.item, index);
-      entry.edgeScale = gridEdgeScale(visibleX, rightEdge);
+	      const entry = this.buildGridBay(queued.item, index);
+	      entry.edgeScale = mobile ? gridEdgeScaleY(visible.y, topEdge, bottomEdge, this.gridLayout?.edgeFade) : gridEdgeScale(visible.x, rightEdge);
       entry.revealProgress = 0;
       entry.bay.scale.setScalar(Math.max(0.01, entry.edgeScale * 0.01));
       entry.hit.visible = entry.edgeScale > 0.45;
@@ -1216,35 +1448,39 @@ export class GalleryScene {
     this.clickable = [this.bigHit, ...entries.map((entry) => entry.hit)];
   }
 
-  buildViewer(category, product) {
-    this.clearGroup(this.viewerGroup);
-    this.clickable = [];
-    const bay = this.createWallMount({
-      x: 0,
-      y: 1.735,
-      width: 2.32,
-      height: 2.45,
-      label: product.name.toUpperCase(),
-      labelSize: 0.12,
-      labelDepth: 0.042,
-      labelOffset: 0.11,
-      labelPlacement: "above",
-    });
-    const isObjectProduct = product.kind === "object";
-    const display = this.createProductDisplay(product, { width: 1.72, height: 1.96, big: true });
-    display.userData.transitionProduct = true;
-    display.position.set(0, isObjectProduct ? 0.12 : 0, (isObjectProduct ? 0.62 : 0.48) + VIEWER_WALL_CLEARANCE);
-    display.userData.viewerProduct = true;
-    if (isObjectProduct) {
-      bay.add(this.createFloatingShelf({ width: 1.9, depth: 0.78, thickness: 0.09, y: -0.3, z: 0.43 }));
-    }
+	  buildViewer(category, product) {
+	    this.clearGroup(this.viewerGroup);
+	    this.clickable = [];
+	    const mobile = this.isMobileLayout();
+	    // Portrait viewer (ref 05): product in the upper half above the bottom sheet; the
+	    // 3D wall label is skipped — the sheet already carries the name (the old label at
+	    // bay-top clipped above the wall into the roof band).
+	    const bay = this.createWallMount({
+	      x: 0,
+	      y: mobile ? 2.5 : 1.735,
+	      width: mobile ? 1.5 : 2.32,
+	      height: mobile ? 1.6 : 2.45,
+	      label: mobile ? null : product.name.toUpperCase(),
+	      labelSize: 0.12,
+	      labelDepth: 0.042,
+	      labelOffset: 0.11,
+	      labelPlacement: "above",
+	    });
+	    const isObjectProduct = product.kind === "object";
+	    const display = this.createProductDisplay(product, { width: mobile ? 1.18 : 1.72, height: mobile ? 1.32 : 1.96, big: true });
+	    display.userData.transitionProduct = true;
+	    display.position.set(0, isObjectProduct ? 0.12 : 0, (isObjectProduct ? (mobile ? 0.52 : 0.62) : 0.48) + VIEWER_WALL_CLEARANCE);
+	    display.userData.viewerProduct = true;
+	    if (isObjectProduct) {
+	      bay.add(this.createFloatingShelf({ width: mobile ? 1.38 : 1.9, depth: mobile ? 0.62 : 0.78, thickness: 0.09, y: mobile ? -0.26 : -0.3, z: 0.43 }));
+	    }
     bay.add(display);
     this.viewerProduct = display;
     this.viewerProductInfo = { productId: product.id, baseScale: display.scale.clone() };
     this.applyLayerExpansionToObject(display, this.layersExpanded, true);
     this.viewerBay = bay;
-    this.viewerGroup.add(this.createWallLightPool(0, 1.9, 2.5, 2.8, 0.16), bay);
-  }
+	    this.viewerGroup.add(this.createWallLightPool(0, mobile ? 2.5 : 1.9, mobile ? 1.9 : 2.5, mobile ? 2.0 : 2.8, 0.16), bay);
+	  }
 
   // D54: the viewer mesh REPRESENTS the selected variant. Size scales the whole piece
   // relative to the largest size (the display default), Thickness scales depth only,
@@ -1354,6 +1590,8 @@ export class GalleryScene {
     group.userData.revealGlyphs = [...titleLine.glyphs, ...bodyGlyphs];
     group.userData.titleGlyphCount = titleLine.glyphs.length;
     group.userData.revealDivider = divider;
+    group.userData.body = body;
+    group.userData.titleWidth = Math.min(titleWidth, TITLE_MAX_W);
     return group;
   }
 
@@ -2310,28 +2548,33 @@ export class GalleryScene {
 
   bindEvents() {
     window.addEventListener("resize", () => this.resize());
-    this.canvas.addEventListener("pointerdown", (event) => {
-      this.dragging = this.state?.mode === "viewer" || this.state?.mode === "category";
-      this.dragStartX = event.clientX;
-      this.dragLastX = event.clientX;
-      this.dragMoved = false;
-    });
+	    this.canvas.addEventListener("pointerdown", (event) => {
+	      this.dragging = this.state?.mode === "viewer" || this.state?.mode === "category";
+	      this.dragStartX = event.clientX;
+	      this.dragStartY = event.clientY;
+	      this.dragLastX = event.clientX;
+	      this.dragLastY = event.clientY;
+	      this.dragMoved = false;
+	    });
     this.canvas.addEventListener("pointermove", (event) => {
       if (!this.dragging) {
         this.queueHover(event);
         return;
       }
-      const delta = event.clientX - this.dragLastX;
-      this.dragLastX = event.clientX;
-      if (Math.abs(event.clientX - this.dragStartX) > 4) {
-        this.dragMoved = true;
-        if (this.state?.mode === "category") this.setCategoryFrontalCamera();
-      }
-      if (this.state?.mode === "viewer" && this.viewerProduct) {
-        this.viewerOrbit = THREE.MathUtils.clamp(this.viewerOrbit + delta * 0.006, -1.25, 1.25);
-      } else if (this.state?.mode === "category") {
-        this.scrollCategoryTo(this.scrollOffset - delta * 0.012);
-      }
+	      const delta = event.clientX - this.dragLastX;
+	      const deltaY = event.clientY - this.dragLastY;
+	      this.dragLastX = event.clientX;
+	      this.dragLastY = event.clientY;
+	      if (Math.hypot(event.clientX - this.dragStartX, event.clientY - this.dragStartY) > 4) {
+	        this.dragMoved = true;
+	        if (this.state?.mode === "category") this.setCategoryFrontalCamera();
+	      }
+	      if (this.state?.mode === "viewer" && this.viewerProduct) {
+	        this.viewerOrbit = THREE.MathUtils.clamp(this.viewerOrbit + delta * 0.006, -1.25, 1.25);
+	      } else if (this.state?.mode === "category") {
+	        const scrollDelta = this.gridLayout?.stepY ? -deltaY * 0.008 : -delta * 0.012;
+	        this.scrollCategoryTo(this.scrollOffset + scrollDelta);
+	      }
     });
     this.canvas.addEventListener("pointerleave", () => {
       this.pendingHoverPoint = null;
@@ -2343,11 +2586,10 @@ export class GalleryScene {
       if (this.dragging && this.dragMoved) {
         this.dragging = false;
         return;
-      }
-      this.dragging = false;
-      this.pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-      this.pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
-      this.raycaster.setFromCamera(this.pointer, this.camera);
+	      }
+	      this.dragging = false;
+	      if (!this.eventToPointer(event)) return;
+	      this.raycaster.setFromCamera(this.pointer, this.camera);
       const hit = this.raycaster.intersectObjects(this.clickable, true).find((item) => item.object.userData.action);
       if (!hit) return;
       this.pendingSelectionBay = findTransitionAncestor(hit.object);
@@ -2367,8 +2609,8 @@ export class GalleryScene {
     );
   }
 
-  setCategoryCamera() {
-    const isPortrait = this.camera.aspect < 0.78;
+	  setCategoryCamera() {
+	    const isPortrait = this.isMobileLayout();
     const camera = this.categoryCameraIsFrontal
       ? isPortrait
         ? CATEGORY_MOBILE_FRONTAL_CAMERA
@@ -2394,10 +2636,9 @@ export class GalleryScene {
   }
 
   updateHover(event) {
-    if (this.state?.mode === "home" && this.homeZones) {
-      this.pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-      this.pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
-      this.raycaster.setFromCamera(this.pointer, this.camera);
+	    if (this.state?.mode === "home" && this.homeZones) {
+	      if (!this.eventToPointer(event)) return;
+	      this.raycaster.setFromCamera(this.pointer, this.camera);
       const hit = this.raycaster.intersectObjects(this.homeClickTargets, false)[0];
       const entry = hit ? this.homeZones.get(hit.object.userData.categoryId) ?? null : null;
       this.setHoveredHomeZone(entry);
@@ -2405,13 +2646,12 @@ export class GalleryScene {
       return;
     }
     this.setHoveredHomeZone(null);
-    if (this.state?.mode !== "category" || !this.gridBays) {
-      this.hoveredEntry = null;
-      return;
-    }
-    this.pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-    this.pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    this.raycaster.setFromCamera(this.pointer, this.camera);
+	    if (this.state?.mode !== "category" || !this.gridBays) {
+	      this.hoveredEntry = null;
+	      return;
+	    }
+	    if (!this.eventToPointer(event)) return;
+	    this.raycaster.setFromCamera(this.pointer, this.camera);
     const entries = this.gridHitEntries ?? [];
     const hit = this.raycaster.intersectObjects(this.gridHittables ?? [], false)[0];
     this.hoveredEntry = hit ? entries.find((entry) => entry.hit === hit.object) ?? null : null;
@@ -2437,26 +2677,71 @@ export class GalleryScene {
     });
   }
 
-  resize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    this.camera.fov = width < 760 ? 43 : 33;
-    this.camera.updateProjectionMatrix();
-    // fov + aspect are final above — refit the home dolly so the wall never clips at narrow
-    // landscape aspects. Boot (no state yet) starts on home framing; category/viewer stay put.
-    if (!this.state || this.state.mode === "home" || this.state.mode === "intro") {
-      this.targetCamera.x = homeCameraX(this.camera.aspect);
-      this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
-      this.targetLook.x = this.targetCamera.x;
-      this.setIntroLayout();
-      this.setHoveredHomeZone(null);
-      this.canvas.style.cursor = "";
-    } else if (this.state.mode === "category") {
-      this.setCategoryCamera();
-      this.updateCategoryGrid();
-    }
+	  resize() {
+	    const width = window.innerWidth;
+	    const height = window.innerHeight;
+	    const wasMobile = this.mobileLayout;
+	    const mobile = this.isMobileLayout();
+	    this.mobileLayout = mobile;
+	    this.renderViewport = mobile ? this.mobileFrame(width, height) : { left: 0, top: 0, width, height };
+	    this.renderer.setSize(width, height, false);
+	    this.camera.aspect = mobile ? MOBILE_CAMERA_ASPECT : width / height;
+	    this.camera.fov = mobile ? 43 : 33;
+	    this.camera.updateProjectionMatrix();
+	    // D55: portrait swaps the whole gallery architecture for the charcoal mobile stage —
+	    // products float over the backdrop and every text surface moves to DOM UI.
+	    this.architecture.visible = !mobile;
+	    this.atmosphereGroup.visible = !mobile;
+	    if (this.mobileStage) this.mobileStage.visible = mobile;
+	    if (mobile) this.logoGroup.visible = false;
+	    else if (this.state) this.logoGroup.visible = this.state.mode === "intro" || this.state.mode === "home";
+	    if (wasMobile !== mobile) {
+	      this.applyHomeLayout();
+	      if (this.state?.mode === "category") {
+	        const category = getCategory(this.state.activeCategoryId);
+	        const { product } = getProduct(this.state.activeProductId);
+	        this.buildCategory(category, product);
+	      }
+	      if (this.state?.mode === "viewer") {
+	        const { product, category } = getProduct(this.state.activeProductId);
+	        this.buildViewer(category, product);
+	      }
+	    }
+	    // fov + aspect are final above — refit the home dolly so the wall never clips at narrow
+	    // landscape aspects. Boot (no state yet) starts on home framing; category/viewer stay put.
+	    if (!this.state || this.state.mode === "home" || this.state.mode === "intro") {
+	      this.targetCamera.x = homeCameraX(this.camera.aspect);
+	      this.targetCamera.y = homeCameraY(this.camera.aspect);
+	      this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
+	      this.targetLook.x = this.targetCamera.x;
+	      this.targetLook.y = homeLookY(this.camera.aspect);
+	      this.applyHomeLayout();
+	      this.setIntroLayout();
+	      this.setHoveredHomeZone(null);
+	      this.canvas.style.cursor = "";
+	    } else if (this.state.mode === "category") {
+	      this.setCategoryCamera();
+	      this.updateCategoryGrid();
+	    } else if (this.state.mode === "viewer") {
+	      this.targetCamera.copy(mobile ? VIEWER_MOBILE_CAMERA : VIEWER_CAMERA);
+	      this.targetLook.copy(mobile ? VIEWER_MOBILE_LOOK : VIEWER_LOOK);
+	    }
+	  }
+
+  renderScene() {
+    const width = this.canvas.clientWidth || window.innerWidth;
+    const height = this.canvas.clientHeight || window.innerHeight;
+    const viewport = this.renderViewport ?? { left: 0, top: 0, width, height };
+    this.renderer.setScissorTest(false);
+    this.renderer.setViewport(0, 0, width, height);
+    this.renderer.clear(true, true, true);
+
+    const bottom = height - viewport.top - viewport.height;
+    this.renderer.setViewport(viewport.left, bottom, viewport.width, viewport.height);
+    this.renderer.setScissor(viewport.left, bottom, viewport.width, viewport.height);
+    this.renderer.setScissorTest(true);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setScissorTest(false);
   }
 
   animate() {
@@ -2470,11 +2755,11 @@ export class GalleryScene {
       this.look.lerp(this.targetLook, lookEase);
     }
     if (this.viewerProduct) this.viewerProduct.rotation.y += (this.viewerOrbit - this.viewerProduct.rotation.y) * 0.12;
-    if (this.homeZones) {
-      this.homeZones.forEach((entry) => {
-        const active = entry === this.hoveredHomeZone && this.state?.mode === "home" && !this.transition;
-        const revealScale = smooth01(entry.revealProgress ?? 1);
-        const targetScale = revealScale * (active ? 1.065 : 1);
+	    if (this.homeZones) {
+	      this.homeZones.forEach((entry) => {
+	        const active = entry === this.hoveredHomeZone && this.state?.mode === "home" && !this.transition;
+	        const revealScale = smooth01(entry.revealProgress ?? 1);
+	        const targetScale = (entry.layoutScale ?? 1) * revealScale * (active ? 1.065 : 1);
         const targetZ = active ? 0.2 : 0;
         entry.group.visible = revealScale > 0.01;
         entry.group.scale.setScalar(entry.group.scale.x + (targetScale - entry.group.scale.x) * 0.14);
@@ -2508,10 +2793,10 @@ export class GalleryScene {
         if (entry.hoverGlow) entry.hoverGlow.visible = active;
       });
     }
-    this.updateLayeredStacks(delta);
-    this.camera.lookAt(this.look);
-    this.renderer.render(this.scene, this.camera);
-  }
+	    this.updateLayeredStacks(delta);
+	    this.camera.lookAt(this.look);
+	    this.renderScene();
+	  }
 
   updateTransition(delta) {
     const transition = this.transition;
@@ -2663,6 +2948,12 @@ function gridEdgeScale(visibleX, rightEdge) {
   const leftScale = smooth01((visibleX - HERO_GRID_VANISH_X) / Math.max(0.001, GRID_EDGE_SCALE_DISTANCE));
   const rightScale = smooth01((rightEdge - visibleX) / GRID_EDGE_SCALE_DISTANCE);
   return Math.max(0.01, Math.min(leftScale, rightScale));
+}
+
+function gridEdgeScaleY(visibleY, topEdge, bottomEdge, fade = 0.82) {
+  const topScale = smooth01((topEdge - visibleY) / fade);
+  const bottomScale = smooth01((visibleY - bottomEdge) / fade);
+  return Math.max(0.01, Math.min(topScale, bottomScale));
 }
 
 function findTransitionAncestor(object) {

@@ -58,6 +58,7 @@
 2026-07-12 — D52: 3D Objects use floating shelves in bayless views — keep the bayless storefront, but display object products on black floating shelves offset from the wall in category grids and product viewer so physical pieces have a surface.
 2026-07-12 — D53: Product variants — matched products mirror live Shopify data exactly (sizes/prices/variant GIDs via generated shopifyVariants.js); Wall Art + Digital Art additionally get site-side Thickness 2mm/3mm/5mm and Material Wood/Acrylic, priced Acrylic +30% and 5mm +20% — Shopify untouched until Master Khurram approves pushing the new options live.
 2026-07-12 — D54: Viewer variant representation — the viewer mesh visually represents the selected variant (size/thickness/material) and the display default is the largest offered size; Wood + 2mm is the modeled visual baseline.
+2026-07-14 — D55: Mobile stage — portrait (real ≤760px or Mobile preview) hides the gallery architecture entirely (wall/floor/track/atmosphere/wall logo/3D text) and floats 3D products over a dark charcoal-grey studio backdrop; ALL portrait text is floating DOM UI (data-mobile attr drives it), 3D is reserved for products — chosen by Master Khurram because architecture cropped badly at 9:16 and objects blended with the floor. Desktop keeps the full gallery. One responsive codebase, no separate mobile build.
 
 ---
 ## ⏳ Open (from ba_spec_v2 §16 — decide before deep build)

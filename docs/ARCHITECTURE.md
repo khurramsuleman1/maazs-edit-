@@ -161,6 +161,11 @@ with visible track heads and provide the reference's separated wall pools. These
 Home-only dark product materials remain children of `homeGroup`, so downstream bay states retain
 their existing lighting/material contract.
 
+Mobile Home correction (2026-07-14): portrait Intro/Home uses the 9:16 scissor viewport with
+camera x `−4.0`, y/look `1.25`, z `4.35`, and the portrait Intro copy scales to `0.42` at x
+`−4.18`. This intentionally crops out header/track/roof hardware, keeps the BA mark and copy on
+the wall, and leaves only a narrow floor strip. Desktop Home framing is unchanged.
+
 Future web interaction contract after approval: each zone root is one raycast target. Hover moves
 the complete zone toward the camera, uniformly scales it to approximately `1.08`, adds a restrained
 warm focus pool, and applies an `is-previewed` state to the matching bottom-nav category. Pointer
