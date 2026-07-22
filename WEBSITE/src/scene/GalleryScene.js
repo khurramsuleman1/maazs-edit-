@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { FontLoader } from "three/addons/loaders/FontLoader.js";
 import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
 import { SVGLoader } from "three/addons/loaders/SVGLoader.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+// GLTFLoader + DRACOLoader are dynamically imported on first 3D-object load (see ensureModelLoader)
+// so their code splits into a lazy chunk instead of weighing down the initial payload.
 import { TextGeometry } from "three/addons/geometries/TextGeometry.js";
 import fontData from "three/examples/fonts/helvetiker_bold.typeface.json";
 import { getCategory, getHeroProduct, getProduct, getSubcollection, getSubcollectionHeroProduct, getSubcollectionProducts } from "../data/catalog.js";
@@ -153,10 +153,9 @@ export class GalleryScene {
     this.onMobileLaneChange = onMobileLaneChange;
     this.textureLoader = new THREE.TextureLoader();
     this.svgLoader = new SVGLoader();
-    // 3D objects load as Draco-compressed GLB. One DRACOLoader, decoder served from /draco/,
-    // decodes off the main thread in a worker.
-    this.dracoLoader = new DRACOLoader().setDecoderPath("/draco/");
-    this.gltfLoader = new GLTFLoader().setDRACOLoader(this.dracoLoader);
+    // 3D objects load as Draco-compressed GLB. The GLTF/Draco loaders are created lazily on the
+    // first model load (ensureModelLoader) so their code is not in the initial bundle.
+    this.modelLoaderPromise = null;
     this.textureCache = new Map();
     this.svgTextCache = new Map();
     this.svgResolvedCache = new Map();
@@ -2414,29 +2413,46 @@ export class GalleryScene {
     return wrapper;
   }
 
+  // Lazily import + construct the GLTF/Draco loaders once, off the initial bundle path.
+  ensureModelLoader() {
+    if (!this.modelLoaderPromise) {
+      this.modelLoaderPromise = Promise.all([
+        import("three/addons/loaders/GLTFLoader.js"),
+        import("three/addons/loaders/DRACOLoader.js"),
+      ]).then(([{ GLTFLoader }, { DRACOLoader }]) => {
+        const draco = new DRACOLoader().setDecoderPath("/draco/");
+        return new GLTFLoader().setDRACOLoader(draco);
+      });
+    }
+    return this.modelLoaderPromise;
+  }
+
   loadModelGeometry(path) {
     if (!this.modelCache.has(path)) {
       this.modelCache.set(
         path,
-        new Promise((resolve, reject) => {
-          this.gltfLoader.load(
-            path,
-            (gltf) => {
-              let geometry = null;
-              gltf.scene.traverse((object) => {
-                if (!geometry && object.isMesh) geometry = object.geometry;
-              });
-              if (!geometry) {
-                reject(new Error(`No mesh geometry in ${path}`));
-                return;
-              }
-              this.modelResolvedCache.set(path, geometry);
-              resolve(geometry);
-            },
-            undefined,
-            reject,
-          );
-        }),
+        this.ensureModelLoader().then(
+          (loader) =>
+            new Promise((resolve, reject) => {
+              loader.load(
+                path,
+                (gltf) => {
+                  let geometry = null;
+                  gltf.scene.traverse((object) => {
+                    if (!geometry && object.isMesh) geometry = object.geometry;
+                  });
+                  if (!geometry) {
+                    reject(new Error(`No mesh geometry in ${path}`));
+                    return;
+                  }
+                  this.modelResolvedCache.set(path, geometry);
+                  resolve(geometry);
+                },
+                undefined,
+                reject,
+              );
+            }),
+        ),
       );
     }
     return this.modelCache.get(path);
