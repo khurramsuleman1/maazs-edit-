@@ -3,48 +3,42 @@
 > Source of truth. Always current. Read first, update before finishing.
 > Keep it short — finished work moves to CHANGELOG, not here.
 
-**Last updated:** 2026-07-16 by Codex (BAstore.blend committed locally with Git LFS; push blocked by GitHub auth)
+**Last updated:** 2026-07-23 by Codex (D67/D68 live; GitHub authenticated and release branch prepared)
 **Checkpoint:** v2 current-state snapshot.
-**Phase:** Vite/Three.js single-wall runtime is the active storefront: Intro Home → Gallery View → bayless category/subcollection grids → product viewer.
-**Shopify:** Admin data was pulled 2026-07-12: 506 products, 38 collections, PKR, 173/198 local storefront products matched.
-**Operating mode:** Single operator. `docs/STATUS.md` carries the current session state.
+**Phase:** Vite/Three.js single-wall storefront: Intro → Gallery View → category/collection product rings → viewer/Custom Studio.
+**Shopify:** Admin data pulled 2026-07-12: 506 products, 38 collections, PKR, 173/198 local storefront products matched.
+**Operating mode:** Single operator. `docs/STATUS.md` carries session state.
 
 ---
 
 ## Source Of Truth
 
-- `BA All DATA/All Multilayer Art-3/BAstore.blend` — scenes `BA_SINGLE_WALL_HOME` + `BA_PRODUCTS`.
-- `docs/BLENDER_SOURCE_WORKFLOW.md` — Git LFS designer workflow for pulling/editing/pushing `BAstore.blend`.
-- `docs/ARCHITECTURE.md` — geometric memory and web parity contract.
+- `BA All DATA/All Multilayer Art-3/BAstore.blend` — Blender scenes `BA_SINGLE_WALL_HOME` + `BA_PRODUCTS`.
+- `docs/ARCHITECTURE.md` — geometric and runtime parity contract.
 - `docs/ASSETS.md` — approval/export gate status.
-- `docs/CLAUDE_MOBILE_VIEW_HANDOFF.md` — resume point for mobile 9:16 web-view refinement.
-- `docs/ui-concepts/mobile/` — portrait reference images for mobile Home, Gallery, category, viewer, search, cart, and checkout.
-- `src/data/shopifyVariants.js` — generated live Shopify variant mirror for matched local products; regenerate from Shopify rather than hand-editing.
+- `src/data/shopifyVariants.js` — generated live Shopify variant mirror; regenerate rather than hand-edit.
 
 ## Now
 
-- **V2 web state is in-site:** `intro` is the initial editorial wall, `home` is now labeled Gallery View with four grouped bayless product zones, and category/subcollection/viewer surfaces are bayless wall mounts with thick wall text. 3D Objects use black floating shelves in category grids and viewer.
-- **Commerce data is aligned:** `docs/SHOPIFY_PRODUCT_ALIGNMENT.json` and `docs/BA_PRODUCT_LOG.xlsx` exist. `catalog.js` mirrors live "from" prices for matched products, while `hud.js` computes selection prices from exact live variants plus site-side Wall/Digital Thickness and Material options.
-- **Variant visuals are active:** product viewer size, thickness, and acrylic/wood material response now follow the selected option set. Default display size is the largest offered size; Wood + 2mm is the baseline.
-- **Interaction/performance animation is in-site:** category and subcollection selection now starts state changes immediately instead of awaiting asset prep; Home hover no longer triggers preloads; Intro starts an idle background asset prewarm; SVG/layer extrusion from cached text is deferred to idle work; pointer hover raycasts are frame-throttled. Static wall/floor/atmosphere/lights now live outside view groups and never duplicate or move. Transitions follow the locked sequence: outgoing content disappears first, selected product moves/scales into its destination, camera moves only after the product lands, then destination text and pieces reveal one by one. Intro → Gallery View uses the same BA wall-logo mesh moving into its gallery placement, hides Intro text line-by-line, reveals Gallery View products Wall Art → Digital → Layered → 3D one piece at a time, and keeps HUD controls hidden until animation completion.
-- **Layered-art experience is active:** Eclipse Mandala and Motorcycle now use explicit back-to-front SVG layer order. Layered SVG stacks assemble one layer at a time from a clear camera-side z offset, the product panel exposes an Expand/Collapse Layers button in viewer mode, and product reveal animations now start forward between the camera and wall before latching back onto their wall positions. All wall/product display placements have additional z-clearance from the wall to avoid collisions. `npm run build` passes on 2026-07-13. Browser smoke passed Layered Art → Eclipse viewer with layer control; headless Chromium only reported WebGL driver performance warnings. Vite still warns that the main bundle is over 500 kB after minification, expected for the current un-split Three.js app.
-- **Cinematic UI concepts are drafted:** fresh no-UI site renders and one UI concept per requested view live in `docs/ui-concepts/`: Intro, Gallery View, Category Grid, Subcollection Grid, Product Viewer, Search, Cart page, and Checkout page. Seven concepts used imagegen; Gallery View used a deterministic overlay fallback after imagegen rejected the base containing recognizable pop-culture product art. Search is layout-only because generated pricing text drifted from PKR.
-- **Mobile vertical-flow concepts are drafted:** `docs/ui-concepts/mobile/` contains imagegen portrait references for Intro, Gallery View, Category, Subcollection, Product Viewer, Search, Cart, Checkout Details, and Payment/Confirm. Mobile implementation direction is top-to-bottom: camera/product arrays move vertically, active products center with previous/next above/below, wall/lights stay fixed, and commerce/search surfaces use overlays or bottom sheets. Search and Cart mobile frames are layout-only because imagegen invented placeholder products/text.
-- **D55 mobile stage is implemented, QA'd, build-verified, and staged for Master Khurram's review:** portrait hides the entire gallery architecture and floats 3D products over a dark charcoal-grey backdrop with ALL text as floating DOM UI (`createMobileStage()` + `resize()` swap in `GalleryScene.js`; `.mobile-stage` DOM layer in `hud.js`/`styles.css`; `data-mobile` attr + `--mobile-frame-top/height` vars align with the letterboxed scissor on real phones). Visual QA passed 2026-07-14 in Chrome mobile preview on all views: Intro (gold BA + centred copy on charcoal), Gallery View (four header-ruled sections at 12/33/54/75% with one lit hero each), Category (COLLECTION eyebrow + title, glowing hero, wrapped name/price plaque, lane tile + plaque via `getMobileLaneItem()`), Viewer (lit product above the bottom sheet). Stage has its own key/fill/ambient lights so dark pieces read on charcoal; desktop verified unchanged; zero console errors. `npm run build` passes on 2026-07-16 with the expected >500 kB bundle warning. Remaining: Master Khurram's design verdict. Dev-only `window.__gallery` hook in `main.js` aids browser QA (hidden tabs never fire rAF — pump `g.animate()` manually).
-- **Cart and Buy Now UI are refined in-site:** the top action is now Cart, the product panel uses secondary Add to Cart plus primary gold Buy Now, and commerce now runs as a staged BA checkout drawer: Cart → Details → Payment → Confirm. Buy Now opens at Details; Add to Cart opens at Cart with thumbnail, selected options, quantity, subtotal, and Keep Browsing. Shopify routes to the live product URL; WhatsApp/COD routes to manual order text. A temporary top Mobile/Desktop preview toggle changes HUD layout and camera aspect for fast responsive checks. `npm run build` passes; Browser smoke passed Product Viewer → Buy Now → Details → Payment → WhatsApp Confirm, Add to Cart → quantity increment, and Mobile/Desktop preview toggle. Vite still warns that the main bundle is over 500 kB after minification, expected for the current un-split Three.js app.
-- **Shared Blender source is Git LFS-ready:** `BA All DATA/All Multilayer Art-3/BAstore.blend` is committed locally through Git LFS so the designer can pull, edit, commit, and push the same source file once GitHub auth is restored and this branch is pushed. Workflow is documented in `docs/BLENDER_SOURCE_WORKFLOW.md`; only one person should edit the binary at a time.
+- **D64/D65 are live on the public phone-test site:** the shell contains one 18×9.2 plaster back wall and no floor. “All niches” and its panel are removed. Mobile transitions hide outgoing pieces first, move/refit the exact same product Object3D when it survives the state change, move the camera after landing, then reveal destination pieces and UI sequentially. Product-array neighbours build at a paced rate, sit farther outward at lower scale, and only the active DOM plaque is shown.
+- **D66 lighting/material correction is live:** focused wall pools are 35% wider with substantially lower center intensity. Wall Art, default black objects, and the Matte Black viewer variant use neutral `#000000`, high roughness, zero metalness, and restrained specular response so warm lights cannot lift them brown/grey.
+- **D67 refinement is published:** portrait Gallery View alternates complete category sections right/left/right/left. Each label sits across the camera axis from its piece at the same vertical center, so each row is an unambiguous text/product pair. Wall Art, the panther, and its shelf reveal around their own fixed final wall pivots; the generic destination reveal no longer overwrites the Wall Art zone's portrait scale. Each piece finishes before its matching UI appears, and only then does the next piece spawn. Collection arrays retain their lower ring controls, while product-array arrows flank the centered product and its active plaque sits directly below it.
+- **D68 is published:** mobile final-product arrays and the viewer share camera `(0.9, 1.66, 4.7)`, look center `(0.9, 1.66, 0)`, mount center `(0.9, 1.62, 0.18)`, initial product footprint, and 3D shelf footprint. Opening/returning from a viewer preserves the selected Object3D's transform; only neighbours and viewer controls change.
+- **Verification passed locally:** `npm run build`; D67 screenshot-based reveal-in-motion QA at 390×844 and settled/round-trip QA at 430×932; D68 frame-by-frame Layered Art handoff at 390×844 plus real-STL/shelf handoff at 430×932; selected product size/center remained unchanged and zero console errors were recorded. The 240 generated deployment files matched the prepared D67/D68 source checksums. Vite still gives the expected >500 kB main-chunk warning for the unsplit Three.js bundle.
+- **Public phone test now points to the D67/D68 local build:** `https://black-aesthetics-3d-test.chaosstudios.chatgpt.site`. Sites reports the corrected client-layout deployment as succeeded. An initial root-layout package briefly returned 404 during validation and was immediately replaced. Shopify, GoDaddy DNS, and `blackaestheticspk.com` were not changed.
+- **Local-server diagnosis:** the Vite project is healthy and starts at `http://localhost:5173/`; the former link stopped responding because no `npm run dev` process remained after the prior publishing teardown, not because the source or dependencies broke.
+- **Current commerce remains in-site:** Shopify-matched variant pricing, product/material/color options, Wall Color visualization, Cart/Buy staged checkout, WhatsApp/COD handoff, and category-specific Custom Studio entries.
+- **Asset gate unchanged:** no new Blender-authored asset was created or wired in this pass; existing product/SVG/STL data was reused.
 
 ## Next
 
-1. Start `npm run dev` when ready for local review, then Master Khurram reviews the staged cart/buy-now/checkout flow at the Vite URL.
-2. Master Khurram reviews the QA'd D55 mobile stage at the Vite URL (Mobile toggle or narrow window); notes get applied view-by-view. Follow-ups continue via `docs/CLAUDE_MOBILE_VIEW_HANDOFF.md`.
-3. Master Khurram reviews `docs/ui-concepts/generated/` and chooses which remaining cinematic desktop UI patterns to implement.
-4. Master Khurram reviews the v2 web flow locally: Intro Home → Gallery View → Wall/Digital/Layered/3D category grids → product viewer variants and layered Expand/Collapse.
-5. Claude brings `BAstore.blend` into parity using `docs/CLAUDE_BLENDER_D47_HANDOFF.md` and `docs/CLAUDE_BLENDER_D48_INTRO_HANDOFF.md`, then leaves the live review cameras active.
-6. After visual approval, decide whether to push the site-side Thickness/Material options into Shopify, then regenerate `src/data/shopifyVariants.js`.
-7. Optional next performance pass: move heavy SVG/STL geometry conversion into Web Workers or pre-generated GLB/JSON geometry assets, then split the large Three.js bundle.
+1. Test the updated public URL on the reported phones, especially the D67 Gallery sequence and D68 stationary product-to-viewer handoff.
+2. After the real-phone experience is approved, connect `3d.blackaestheticspk.com` and add its link to the Shopify homepage/menu.
+3. Decide the next Custom Studio input: reference-file preview, written brief, or both before WhatsApp quote handoff.
+4. Optional performance pass: Web Workers/pre-generated geometry plus bundle splitting.
+5. Complete and review Blender D47/D48 parity before exporting any newly authored asset.
 
 ## Blocked
 
-- Blender D47/D48 parity is still waiting on live in-Blender review and approval.
-- GitHub push is blocked in this environment until GitHub auth is restored: `git push origin main` fails with `could not read Username for 'https://github.com': Device not configured`. The local `main` commits include the Git LFS pointer for `BAstore.blend`; the next authenticated push must upload the 201 MB LFS object.
+- Direct post-publish page verification from this Mac is blocked by the Sites access layer (`403` / `Access Denied`) even though Sites reports the project access mode as public and the deployment as succeeded. Confirm the final experience from a real phone/browser.
+- Blender D47/D48 parity is waiting on live in-Blender review and approval.

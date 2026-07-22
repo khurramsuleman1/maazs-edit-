@@ -212,6 +212,29 @@ const digitalProducts = [
   price: "PKR 2,500",
 }));
 
+// D63 customization heroes reuse existing approved/data product geometry as a visual example.
+// They are distinct local products so selecting the category hero opens a dedicated customization
+// viewer without pretending the example artwork itself is the customer's final design.
+const customWallArtProduct = {
+  ...wallArtProducts[0],
+  id: "custom-wall-art",
+  name: "Customize Your Wall Art",
+  custom: true,
+  material: "Your design, laser-cut to order",
+  price: "Custom quote",
+  customDescription: "Upload or describe your own artwork, logo, name, or silhouette, then choose its size, depth, material, and color.",
+};
+
+const customDigitalArtProduct = {
+  ...digitalProducts[0],
+  id: "custom-digital-art",
+  name: "Customize Your Digital Art",
+  custom: true,
+  material: "Your artwork, printed to order",
+  price: "Custom quote",
+  customDescription: "Turn your photo, illustration, or design into a made-to-order mounted print with your preferred size and finish.",
+};
+
 const byKeywords = (products, keywords) => {
   const terms = keywords.map((keyword) => keyword.toLowerCase());
   return products.filter((product) => {
@@ -345,9 +368,9 @@ export const categories = [
     collection: "2D Wall-Art",
     handle: "2d-wallart",
     description: "Thick laser-cut sheet silhouettes mounted into lit gallery recesses, with black forms standing proud from the pale bay wall.",
-    heroProductId: "wall-elegant-horse-head",
+    heroProductId: "custom-wall-art",
     subcollections: wallArtSubcollections,
-    products: wallArtProducts,
+    products: [customWallArtProduct, ...wallArtProducts],
   },
   {
     id: "digital-art",
@@ -356,9 +379,9 @@ export const categories = [
     collection: "Digital Art",
     handle: "poster-art",
     description: "Poster prints — each final print file is the front-face texture of a black sheet panel, hung with gold corner pins like a real mounted poster.",
-    heroProductId: "digital-ironman",
+    heroProductId: "custom-digital-art",
     subcollections: digitalSubcollections,
-    products: digitalProducts,
+    products: [customDigitalArtProduct, ...digitalProducts],
   },
   {
     id: "layered-art",
@@ -367,8 +390,20 @@ export const categories = [
     collection: "Layered Art",
     handle: "layered-art",
     description: "Approved Blender layer stacks rebuilt from SVG cut layers, with each sheet extruded and stepped forward like a real layered wall panel.",
-    heroProductId: "layered-wolf",
+    heroProductId: "custom-layered-art",
     products: [
+      {
+        id: "custom-layered-art",
+        name: "Customize Your Layered Art",
+        custom: true,
+        layers: layeredSvg("wolf", 4),
+        frontLayerFirst: true,
+        kind: "layered",
+        aspect: 1.15,
+        material: "Your design, built in dimensional layers",
+        price: "Custom quote",
+        customDescription: "Create a layered piece from your image, logo, name, or idea, then choose the finished size and material treatment.",
+      },
       {
         id: "layered-wolf",
         name: "Layered Wolf",
@@ -427,8 +462,21 @@ export const categories = [
     collection: "3D Prints",
     handle: "3d-prints",
     description: "Real 3D-print products — each piece is its actual decimated print model, displayed on floating gallery shelves.",
-    heroProductId: "object-panther",
+    heroProductId: "custom-3d-object",
     products: [
+      {
+        id: "custom-3d-object",
+        name: "Customize Your 3D Object",
+        custom: true,
+        kind: "object",
+        shape: "panther",
+        model: "/products/3d/panther.stl",
+        modelFit: 0.84,
+        modelLift: -0.08,
+        material: "Your model or idea, prepared for 3D printing",
+        price: "Custom quote",
+        customDescription: "Start from an STL, reference image, or written idea and choose the scale and print color for a made-to-order object.",
+      },
       {
         id: "object-panther",
         name: "Panther",

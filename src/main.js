@@ -31,6 +31,7 @@ const gallery = new GalleryScene({
   onProductOpen: (productId) => selectProduct(productId, { openViewer: true }),
   onCategoryPreview: (categoryId) => hud?.previewCategory(categoryId),
   onInteractionLock: setInteractionLocked,
+  onMobileLaneChange: (lane) => hud?.updateMobileRing(lane),
 });
 
 hud = createHud({
@@ -39,11 +40,13 @@ hud = createHud({
   onIntro: showIntro,
   onBrowseHome: showBrowseHome,
   onCategory: openCategory,
+  onSubcollection: openSubcollection,
   onProduct: (productId, options = {}) => selectProduct(productId, { openViewer: options.openViewer ?? appState.mode === "viewer" }),
   onViewer: () => openViewer(appState.activeProductId),
   onStepProduct: stepProduct,
   onCategoryScroll: (direction) => gallery.scrollCategoryBy(direction),
   onVariantChange: (productId, params) => gallery.applyViewerVariant(productId, params),
+  onWallColorChange: (color) => gallery.setWallColor(color),
   onLayerExpandChange: (productId, expanded) => gallery.setLayerExpanded(productId, expanded),
   onPreviewModeChange: (mode) => gallery.setPreviewMode(mode),
   getLaneInfo: () => gallery.getMobileLaneItem(),

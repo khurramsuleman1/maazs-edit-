@@ -56,6 +56,45 @@ desc wash 90W. No spotlights anywhere; bay emissive strips/pucks/underlights are
 
 Camera/render: res **1672×941 (16:9)**, Cycles, color mgmt **AgX / AgX-Punchy**.
 
+### 2.1 D57/D64 web-only architecture simplification (2026-07-22)
+
+The live code-native Three.js shell now renders exactly one shared architectural mesh on both
+desktop and mobile:
+
+| Web element | Center (x,y,z) | Dim (x,y,z) | Material |
+|---|---|---|---|
+| Tall plaster wall | (2.6, 2.6, −0.08) | 18 × 9.2 × 0.16 | one seamless 2048×1024 procedural warm-plaster color/bump texture |
+
+The web floor, header band, cove mesh, track rail, stems, skirting, wall-shade overlay, floor-seam
+meshes, and decorative wall-fixture groups are no longer instantiated. This is a **web runtime
+override**; the approved Blender construct remains unchanged in `BAstore.blend`. The taller wall
+extends below every camera frame so the canvas has no floor line or floor reveal. Lighting is
+non-architectural: one tall wall wash, broad front fills, and view-local additive product pools.
+Mobile adds a soft key/fill/rim rig and viewer-only softbox/rim lights against the same wall.
+
+**D66 focus-light override:** every additive product pool uses a 1.35× wider plane, 0.52×
+opacity, and a softer radial texture (center alpha 0.62 rather than 0.95). Overlapping hero,
+array, and viewer pools must read as one broad warm falloff, never a white hotspot behind the
+focused piece.
+
+**D67 portrait composition:** Gallery View is a four-stop vertical zigzag rather than one centered
+line. Hero centers alternate right/left/right/left around camera x `−4`: Wall Art x `−3.68`,
+Digital Art x `−4.30`, Layered Art x `−3.68`, and the wider 3D Object x `−4.28`. Every label
+sits on the opposite side of the camera axis from its piece and shares the piece's vertical
+center, forming four unambiguous text/product pairs. Each complete category section—including
+any shelf/light—reveals only after the previous section settles
+(`0.98 s` interval, `0.46 s` piece reveal). Its DOM label begins only after the piece lands and
+finishes before the next category starts, preserving the exact piece → UI → next-piece order.
+Gallery hero reveals keep each product root at its final wall coordinate and scale around that
+product's own pivot. The category-zone transform never scales from zero, because doing so would
+make locally offset heroes appear to spawn elsewhere and travel across the wall. The 3D shelf uses
+the same fixed-position scale reveal as its panther.
+On category pages, collection-ring controls remain in the lower lane; product-ring arrows flank
+the centered product at about 51.5% viewport height and its active plaque sits below at about
+70.5%, so UI follows the active 3D composition instead of sharing one generic position.
+
+Portrait rendering uses the device's real viewport aspect with no fixed 9:16 scissor/letterbox.
+
 ## 3. Bay anatomy — THE FRAME BOX LAW (applies to every bay, any size)
 
 > **D49 web supersession:** the current web runtime no longer renders visible category,
@@ -103,12 +142,14 @@ meshes, bays, category dock, bag, or checkout controls.
 
 ### 4.B Transition sequence
 
-Browse Home → category transitions are deterministic staged reveals. Interaction is locked first;
-the outgoing scene clears around a detached clone of the selected hero; the same visible hero then
-moves and uniformly scales to the destination mount. Destination text glyphs are prebuilt and
-revealed sequentially after landing, followed by staggered bay reveals. Interaction resumes only
-after the final bay settles. Asset parsing, texture decoding, and shader compilation must not be
-started as part of the visible reveal; cached/prebuilt destination objects are animated instead.
+All state transitions are deterministic staged reveals (D65). Interaction locks first; every
+outgoing piece hides in sequence before the camera or destination changes. If the destination uses
+the same product, the real product object detaches from its old parent, travels, and is reparented
+at the destination—no duplicate product is loaded or swapped in. Its final footprint is refit at
+commit time because SVG/STL placeholders may resolve while it travels. Camera motion starts only
+after that product lands. Destination wall copy, UI, and product mounts then reveal one at a time;
+interaction resumes only after the final item settles. Mobile product arrays build the selected
+item first, pace neighbour creation, and assign reveal order locally rather than from catalog index.
 
 > **D47 HOME REVISION — IMPORTANT:** the four HOME bays below
 > describe the currently approved/in-site implementation, but are superseded for the next Home
@@ -161,10 +202,11 @@ with visible track heads and provide the reference's separated wall pools. These
 Home-only dark product materials remain children of `homeGroup`, so downstream bay states retain
 their existing lighting/material contract.
 
-Mobile Home correction (2026-07-14): portrait Intro/Home uses the 9:16 scissor viewport with
+Mobile Home correction (2026-07-14, shell superseded by D64): portrait Intro/Home uses the 9:16 scissor viewport with
 camera x `−4.0`, y/look `1.25`, z `4.35`, and the portrait Intro copy scales to `0.42` at x
 `−4.18`. This intentionally crops out header/track/roof hardware, keeps the BA mark and copy on
-the wall, and leaves only a narrow floor strip. Desktop Home framing is unchanged.
+the wall, and the D64 wall now continues through the bottom of frame with no floor strip. Desktop
+Home framing is unchanged.
 
 Future web interaction contract after approval: each zone root is one raycast target. Hover moves
 the complete zone toward the camera, uniformly scales it to approximately `1.08`, adds a restrained
@@ -217,14 +259,20 @@ first show Shopify-style niche wall mounts; selecting a niche swaps the moving t
 niche's products. Portrait browser uses a backed-up category camera aimed closer to the active
 hero mount so category title and thick wall text do not crop.
 
-State-motion contract (D49): visible bay geometry is gone. The selected product mesh detaches
-forward from its source wall mount, travels as the same visible hero, and lands on the destination
-wall mount before the destination product copy takes over. The shared grid container is never
-scaled, so mounts cannot converge or intersect. Category/niche arrays reveal one wall mount at a
-time with a small uniform scale-up. Transition progress uses real elapsed time rather than capped
-render-frame delta, so heavy SVG/STL loading may skip frames but can never freeze a handoff or
-leave a stale product under a new category label. Product commerce controls remain delayed until
-the 3D handoff is established.
+State-motion contract (D49/D65): visible bay geometry is gone. The selected product mesh detaches
+forward from its source wall mount, travels as the same object, and is reparented onto the
+destination mount; the temporary destination copy is disposed, never shown as a replacement. A
+piece absent from the new state is hidden before the scene/camera handoff. The shared grid
+container is never scaled, so mounts cannot converge or intersect. Category/niche arrays reveal
+one mount at a time. Transition progress uses real elapsed time rather than capped render-frame
+delta, so heavy SVG/STL loading may skip frames but cannot freeze a handoff or leave stale content
+under a new label. Product commerce controls remain delayed until the 3D handoff is established.
+
+Viewer material controls (D59): Wall Art and 3D Object color selections clone and tint only the
+active product's owned `MeshStandardMaterial` instances; shared wall, shelf, text, and light
+materials are never mutated. The viewer-only DOM Wall Color drawer changes the shared wall
+material's color multiplier while retaining its procedural plaster color/bump maps. It is a live
+visualization control, not a commerce option, and defaults/resets to `#ffffff` (original plaster).
 
 ### 5.1 Description column (in the hidden-logo zone)
 All physical, flush on wall face (place y −0.085, extrude 4-12 mm). Blender left edge **DX = −5.45**.
@@ -272,6 +320,29 @@ counts remain small gold extrusions near the product.
 - Small 3D-object procedural previews use a conservative `0.42` scale for angled-camera clearance.
   Grid hover animation multiplies each display's stored base scale instead of resetting it to `1`.
 
+**D57 mobile override:** portrait category/subcollection items move left-to-right through a shallow
+depth ring centered at web `(0.9, 0.74)`. The centred item is nearest/full scale; neighbours rotate
+and recede in +/−X with decreasing scale. Horizontal drag, wheel, and arrow controls advance and
+snap one item at a time. DOM name/price pills use the same ring slot data, so the visible label
+travels with its mesh instead of remaining detached in a fixed bottom plaque.
+
+**D62 mobile category states:** categories with collections use the original shallow ring at
+`(0.9, 0.74)` beneath one separate hero mount at y `2.05`. Once a collection is selected—or a
+category leads directly to final products—the separate hero mount is removed and the product ring
+moves to `(0.9, 1.62)`. Product mounts grow from `1.02×1.08` to `1.42×1.50`; flat product display
+bounds grow from `0.76×0.84` to `1.10×1.24`, and object bounds grow from `0.68×0.64` to
+`0.98×0.96`. The active item becomes the visual centre while neighbours remain partially visible
+for horizontal continuity. D65 pushes final-product neighbours farther outward with stronger scale
+falloff and renders only the active item's DOM plaque; neighbour meshes remain as quiet previews.
+
+**D63 customization hero contract:** every category's lead item is a distinct local “Customize
+Your Own” product that opens the normal viewer in Custom Studio mode. It reuses existing approved
+or product-data geometry only as an example preview; it is not a new authored 3D asset and does not
+represent the customer's final design. Wall/Digital keep this custom item in the separate hero
+mount above their collection ring. Layered/3D have no collection tier, so the custom item is the
+first centered entry in the enlarged final-product ring. The Custom Studio exposes the category's
+existing size/material/finish/color controls and routes the final quote request through WhatsApp.
+
 Lights: row washes AREA 12 × 0.5 at (5.0, −1.4, 3.1) rot 55° 180W (row0) and (5.0, −1.6, 1.9)
 rot 65° 140W (row1); front fill 15 × 2.8, 260W at (2.4, −6.5, 2.5) rot 72°; description wash
 2 × 0.4, 90W at (−5.3, −1.0, 2.4). Web note (D41): the browser uses NO spotlights — only
@@ -287,6 +358,19 @@ on a black floating shelf offset from the plaster. The product title appears abo
 thick black extruded vector text on the wall. Seven browser-safe 3D print STLs now load as real
 viewer meshes; larger figure/lamp STLs remain lightweight stand-ins until optimized or exported as
 approved web assets.
+On mobile (D57/D61/D68), the viewer fills the real device viewport and uses a dedicated warm RectArea
+softbox plus amber rim light in addition to the mobile key/fill rig. D68 aligns the viewer camera
+`(0.9, 1.66, 4.7)`, look `(0.9, 1.66, 0)`, mount `(0.9, 1.62, 0.18)`, and initial product
+footprint with the active final-product ring slot. A category→viewer handoff therefore keeps the
+selected product and camera stationary while the neighbouring products clear and viewer UI appears;
+the return handoff preserves the same center while the product ring rebuilds around it.
+The right rail highlights one active
+customization group; that group's compact option buttons render directly above the enlarged bottom
+commerce panel, which carries product/price, quantity, Cart, and Buy. Desktop uses a left
+customization panel and right information/commerce panel. Context navigation is a desktop bottom
+path (Home → category → optional collection → product) and a single-step mobile back button between
+the logo and Search. The temporary layout override now lives inside the Information panel beside
+About/contact links instead of in the customer-facing header.
 If a Blender parity collection is needed later, build it as `BA_SW_VIEWER_PAGE` following the
 frame-box law and document its exact coordinates here.
 
@@ -376,6 +460,26 @@ four gold corner standoff pins (render-target detail). No separate image plane, 
 10. QA render PNGs are deleted after viewing. Review is live in the viewport.
 11. Blender crash rule: never run blocking `bpy.ops.render.render()` through the MCP execute
     channel; use the MCP render tool; SAVE after every milestone.
+12. D64 web shell exception: desktop and mobile share only one tall textured wall; there is no live
+    web floor. Legacy floor/header/track/skirting/fixture geometry remains Blender reference only.
+13. D58/D61 responsive framing: automatic mode resolves real devices at ≤760 px to mobile and wider
+    viewports to desktop. Real phones use their full viewport, while forced mobile preview on a
+    laptop uses a centred 390×844 scissor whose DOM frame and Three.js camera share the exact same
+    bounds. The temporary layout override is available only inside the Information panel.
+14. D61 viewer layout: mobile customization stays on the right rail with only the active group's
+    options above the bottom commerce panel; desktop customization stays left and product
+    information/commerce stays right. Neither layout may cover the maximum-size viewer product.
+15. D62/D63 mobile browse hierarchy: only collection-choice screens may show a separate category
+    hero above a small ring. Final-product arrays use one larger centered ring with no duplicate
+    hero; the category customization product is either that separate hero or the ring's first item.
+16. D65/D68 transition ownership/order: outgoing pieces hide first; a product present in both
+    states is the same reparented Object3D. Desktop and non-product-ring transitions refit/move it
+    before camera motion; mobile final-product-ring → viewer preserves its exact product and camera
+    transform, then reveals viewer UI. Never show source and copy together.
+17. D66 web black/light contract: Wall Art and the Matte Black viewer variant render neutral
+    `#000000` with high roughness, zero metalness, and restrained specular response. Warm scene
+    lights may reveal form at an edge but must never lift black surfaces brown or grey. Focus pools
+    stay broad and low-intensity per §2.1.
 
 ## 10. Web mapping notes (for the Three.js rebuild)
 
@@ -389,8 +493,9 @@ four gold corner standoff pins (render-target detail). No separate image plane, 
   (`ACESFilmic` nearest) with warm key (1, 0.72, 0.45).
 - **Color parity law (D37):** web hexes = Blender linear → sRGB (1.055·x^(1/2.4)−0.055).
   Current derived set: warm key #ffddb3 · front fill #ffeacb · plaster #c0aa89 ·
-  bay inner #cecdc9 · ash ramp #424242–#6a6a6a · floor D50 black-gold marble override · gold emission #ffce90 ·
-  gold matte #d3b36c · black wood #302c29. Recompute here when the .blend changes.
+  bay inner #cecdc9 · ash ramp #424242–#6a6a6a · gold emission #ffce90 ·
+  gold matte #d3b36c · Blender black wood #302c29 · D66 live-web product black #000000.
+  Recompute Blender-derived values here when the .blend changes; retain D66 until explicitly superseded.
 - Bay-glow parity (D41 fully-lit room): glowing recess puck + soft down-pool in every bay,
-  underlight wash below each shelf, warm floor glow pool in front of each bay — all cheap
+  underlight wash below each shelf, warm lower-wall glow pool in front of each bay — all cheap
   additive planes, not real lights (D34). No spotlights or wall scallops anywhere.

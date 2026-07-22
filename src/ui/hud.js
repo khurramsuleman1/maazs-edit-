@@ -7,6 +7,14 @@ const SHOPIFY_PRODUCT_BASE = "https://blackaestheticspk.com/products";
 // Pricing rule (Master Khurram, 2026-07-12): Acrylic +30% over wood, 5mm +20% over base.
 const THICKNESS_GROUP = { name: "Thickness", values: ["2mm", "3mm", "5mm"] };
 const MATERIAL_GROUP = { name: "Material", values: ["Wood", "Acrylic"] };
+const WALL_ART_COLOR_GROUP = { name: "Color", values: ["Matte Black", "Warm White", "Antique Gold"] };
+const OBJECT_COLOR_GROUP = { name: "Color", values: ["Matte Black", "Natural PLA", "Warm White", "Antique Gold"] };
+const COLOR_HEX = {
+  "Matte Black": "#000000",
+  "Natural PLA": "#d8cfbb",
+  "Warm White": "#f2eadb",
+  "Antique Gold": "#b8893f",
+};
 const THICKNESS_MULTIPLIER = { "2mm": 1, "3mm": 1, "5mm": 1.2 };
 const MATERIAL_MULTIPLIER = { Wood: 1, Acrylic: 1.3 };
 
@@ -50,10 +58,12 @@ export function createHud({
   onIntro,
   onBrowseHome,
   onCategory,
+  onSubcollection,
   onProduct,
   onStepProduct,
   onCategoryScroll,
   onVariantChange,
+  onWallColorChange,
   onLayerExpandChange,
   onPreviewModeChange,
   getLaneInfo,
@@ -63,15 +73,30 @@ export function createHud({
       <button class="brand" type="button" data-action="intro" aria-label="Return to introduction">
         <img src="/logo-blackaesthetics.svg" alt="" />
       </button>
+      <button class="mobile-context-back" type="button" data-action="mobile-back" hidden></button>
       <div class="hud-actions">
         <button class="search-pill" type="button" data-action="search" aria-label="Search products">
           <span aria-hidden="true">Search products or categories</span>
         </button>
-        <button class="icon-button bag-button" type="button" data-action="checkout" aria-label="Open cart">Cart</button>
-        <button class="icon-button preview-toggle" type="button" data-action="toggle-preview-mode" aria-pressed="false">Mobile</button>
-        <button class="icon-button" type="button" data-action="intro" aria-label="Reset view">Reset</button>
+        <button class="icon-button info-button" type="button" data-action="toggle-info" aria-label="Information" aria-expanded="false">i</button>
       </div>
     </header>
+
+    <aside class="info-panel" data-panel="info" hidden>
+      <div class="info-panel-top">
+        <div><p>Black Aesthetics</p><h2>Information</h2></div>
+        <button class="text-link" type="button" data-action="close-info">Close</button>
+      </div>
+      <p class="info-about">Distinctive wall art, digital prints, layered pieces and 3D objects for spaces with character.</p>
+      <div class="info-links">
+        <a href="https://blackaestheticspk.com" target="_blank" rel="noreferrer">Visit store</a>
+        <a href="https://wa.me/?text=Hello%20Black%20Aesthetics" target="_blank" rel="noreferrer">WhatsApp</a>
+      </div>
+      <div class="info-view-control">
+        <span>Preview layout</span>
+        <button class="preview-toggle" type="button" data-action="toggle-preview-mode" aria-pressed="false">Mobile view</button>
+      </div>
+    </aside>
 
     <section class="home-copy" data-panel="home">
       <p>BLACK AESTHETICS</p>
@@ -92,7 +117,7 @@ export function createHud({
         ${categories
           .map(
             (item, index) => `
-              <button type="button" data-category="${escapeAttribute(item.id)}" style="--m-slot: ${index}">
+              <button class="${index % 2 === 0 ? "is-left" : "is-right"}" type="button" data-category="${escapeAttribute(item.id)}" style="--m-slot:${index};--m-index-delay:${(index * 0.98).toFixed(2)}s">
                 <span>${escapeHtml(item.label.toUpperCase())}</span>
                 <em>View collection</em>
               </button>
@@ -104,11 +129,11 @@ export function createHud({
         <p class="m-cat-eyebrow"></p>
         <h2 class="m-cat-title"></h2>
         <div class="m-hero-plaque"><strong></strong><span></span></div>
-        <div class="m-lane-plaque"><strong></strong><span></span></div>
+        <div class="m-ring-labels" aria-live="polite"></div>
       </div>
     </div>
 
-    <nav class="category-rail" aria-label="Store categories"></nav>
+    <nav class="category-rail" aria-label="Scene navigation"></nav>
 
     <div class="category-scroll-controls" data-panel="category-scroll" hidden>
       <button type="button" data-action="category-scroll-prev" aria-label="Scroll collection left">
@@ -119,17 +144,14 @@ export function createHud({
       </button>
     </div>
 
-    <div class="collection-context" data-panel="collection-context" hidden>
-      <span></span>
-      <button type="button" data-action="category">All niches</button>
-    </div>
-
     <aside class="product-panel" data-panel="product" hidden>
-      <button class="text-link" type="button" data-action="category">Back to Collection</button>
-      <p class="eyebrow"></p>
-      <h2></h2>
-      <p class="price"></p>
-      <p class="material"></p>
+      <section class="product-info-section">
+        <p class="panel-kicker">Product information</p>
+        <p class="eyebrow"></p>
+        <h2></h2>
+        <p class="price"></p>
+        <p class="material"></p>
+      </section>
       <div class="variant-groups"></div>
       <button class="layer-expand-button" type="button" data-action="toggle-layer-expand" hidden>Expand Layers</button>
       <div class="quantity-row">
@@ -149,6 +171,25 @@ export function createHud({
         <button class="shopify-buy" type="button" data-action="buy-now">Buy Now</button>
         <a class="whatsapp" href="#" target="_blank" rel="noreferrer" aria-label="Order via WhatsApp">WA</a>
       </div>
+    </aside>
+
+    <aside class="desktop-customization-panel" data-panel="desktop-customization" hidden>
+      <div class="desktop-customization-heading">
+        <p>Viewer controls</p>
+        <h2>Customize</h2>
+      </div>
+      <div class="desktop-variant-groups"></div>
+      <div class="desktop-wall-control">
+        <p>Wall color</p>
+        <div class="wall-color-presets" aria-label="Wall color presets">
+          <button type="button" data-wall-color="#ffffff" style="--swatch:#c0aa89" aria-label="Original warm plaster"></button>
+          <button type="button" data-wall-color="#f2eee6" style="--swatch:#f2eee6" aria-label="Gallery white"></button>
+          <button type="button" data-wall-color="#b77655" style="--swatch:#b77655" aria-label="Terracotta"></button>
+          <button type="button" data-wall-color="#514b46" style="--swatch:#514b46" aria-label="Charcoal"></button>
+        </div>
+        <label class="wall-color-custom"><span>Custom</span><input type="color" value="#ffffff" data-desktop-wall-color-input aria-label="Choose a custom wall color" /></label>
+      </div>
+      <button class="desktop-layer-expand layer-expand-button" type="button" data-action="toggle-layer-expand" hidden>Expand Layers</button>
     </aside>
 
     <aside class="checkout-panel" data-panel="checkout" hidden>
@@ -243,6 +284,45 @@ export function createHud({
       <button type="button" data-action="browse-home" aria-label="Back to Gallery View">Gallery</button>
     </div>
 
+    <aside class="wall-customizer" data-panel="wall-customizer" hidden>
+      <button class="wall-customizer-toggle" type="button" data-action="toggle-wall-customizer" aria-expanded="false">
+        <span class="wall-color-dot" aria-hidden="true"></span>
+        <span>Wall Color</span>
+        <span class="wall-customizer-chevron" aria-hidden="true"></span>
+      </button>
+      <div class="wall-customizer-body" hidden>
+        <div class="wall-color-presets" aria-label="Wall color presets">
+          <button type="button" data-wall-color="#ffffff" style="--swatch:#c0aa89" aria-label="Original warm plaster"></button>
+          <button type="button" data-wall-color="#f2eee6" style="--swatch:#f2eee6" aria-label="Gallery white"></button>
+          <button type="button" data-wall-color="#b77655" style="--swatch:#b77655" aria-label="Terracotta"></button>
+          <button type="button" data-wall-color="#514b46" style="--swatch:#514b46" aria-label="Charcoal"></button>
+        </div>
+        <label class="wall-color-custom">
+          <span>Custom</span>
+          <input type="color" value="#ffffff" data-wall-color-input aria-label="Choose a custom wall color" />
+        </label>
+        <button class="wall-color-reset" type="button" data-wall-color="#ffffff">Reset plaster</button>
+      </div>
+    </aside>
+
+    <section class="mobile-viewer-ui" data-panel="mobile-viewer" hidden aria-label="Mobile product controls">
+      <div class="mobile-viewer-tools" aria-label="Product options"></div>
+      <div class="mobile-option-popover" hidden></div>
+      <div class="mobile-commerce-bar">
+        <div class="mobile-commerce-copy">
+          <strong></strong>
+          <span></span>
+        </div>
+        <div class="mobile-commerce-quantity" aria-label="Quantity">
+          <button type="button" data-action="decrement" aria-label="Decrease quantity">−</button>
+          <strong></strong>
+          <button type="button" data-action="increment" aria-label="Increase quantity">+</button>
+        </div>
+        <button class="mobile-cart-action" type="button" data-action="add-to-cart">Cart</button>
+        <button class="mobile-buy-action" type="button" data-action="buy-now">Buy</button>
+      </div>
+    </section>
+
     <section class="search-panel" data-panel="search" hidden>
       <button class="text-link close-link" type="button" data-action="close-search">Close</button>
       <label>
@@ -256,12 +336,23 @@ export function createHud({
   const categoryRail = root.querySelector(".category-rail");
   const homePanel = root.querySelector('[data-panel="home"]');
   const introBrowse = root.querySelector(".intro-browse");
-  const bagButton = root.querySelector(".bag-button");
+  const mobileContextBack = root.querySelector(".mobile-context-back");
+  const infoButton = root.querySelector(".info-button");
+  const infoPanel = root.querySelector('[data-panel="info"]');
   const productPanel = root.querySelector('[data-panel="product"]');
+  const desktopCustomizationPanel = root.querySelector('[data-panel="desktop-customization"]');
+  const desktopVariantGroups = root.querySelector(".desktop-variant-groups");
+  const desktopWallColorInput = root.querySelector("[data-desktop-wall-color-input]");
   const checkoutPanel = root.querySelector('[data-panel="checkout"]');
   const viewerControls = root.querySelector('[data-panel="viewer"]');
+  const wallCustomizer = root.querySelector('[data-panel="wall-customizer"]');
+  const wallCustomizerBody = root.querySelector(".wall-customizer-body");
+  const wallCustomizerToggle = root.querySelector(".wall-customizer-toggle");
+  const wallColorInput = root.querySelector("[data-wall-color-input]");
+  const mobileViewer = root.querySelector('[data-panel="mobile-viewer"]');
+  const mobileViewerTools = root.querySelector(".mobile-viewer-tools");
+  const mobileOptionPopover = root.querySelector(".mobile-option-popover");
   const categoryScrollControls = root.querySelector('[data-panel="category-scroll"]');
-  const collectionContext = root.querySelector('[data-panel="collection-context"]');
   const searchPanel = root.querySelector('[data-panel="search"]');
   const searchInput = root.querySelector('input[type="search"]');
   const searchResults = root.querySelector(".search-results");
@@ -270,7 +361,7 @@ export function createHud({
   const mCatEyebrow = root.querySelector(".m-cat-eyebrow");
   const mCatTitle = root.querySelector(".m-cat-title");
   const mHeroPlaque = root.querySelector(".m-hero-plaque");
-  const mLanePlaque = root.querySelector(".m-lane-plaque");
+  const mRingLabels = root.querySelector(".m-ring-labels");
   const optionSelections = new Map();
   const checkoutSteps = ["cart", "details", "payment", "confirm"];
   let lastState = null;
@@ -278,10 +369,15 @@ export function createHud({
   let activeProductId = null;
   let checkoutStep = "cart";
   let paymentMethod = "shopify";
-  let previewMode = "desktop";
+  // Responsive by default. Once toggled, the chosen layout remains an explicit override.
+  let previewMode = "auto";
   let layersExpanded = false;
+  let wallCustomizerOpen = false;
+  let wallColor = "#ffffff";
+  let activeMobileTool = null;
   let quantity = 1;
   let interactionLocked = false;
+  let infoOpen = false;
 
   root.addEventListener("click", (event) => {
     if (interactionLocked) return;
@@ -291,10 +387,40 @@ export function createHud({
       return;
     }
 
+    const wallColorTarget = event.target.closest("[data-wall-color]");
+    if (wallColorTarget) {
+      setWallColor(wallColorTarget.dataset.wallColor);
+      return;
+    }
+
+    const mobileToolTarget = event.target.closest("[data-mobile-tool]");
+    if (mobileToolTarget) {
+      const tool = mobileToolTarget.dataset.mobileTool;
+      activeMobileTool = activeMobileTool === tool ? null : tool;
+      if (lastState?.mode === "viewer") {
+        const { product, category } = getProduct(lastState.activeProductId);
+        renderMobileViewer(lastState, product, category);
+      }
+      return;
+    }
+
     const categoryTarget = event.target.closest("[data-category]");
     if (categoryTarget) {
       closeTemporaryPanels();
       onCategory(categoryTarget.dataset.category);
+      return;
+    }
+
+    const subcollectionTarget = event.target.closest("[data-subcollection]");
+    if (subcollectionTarget) {
+      closeTemporaryPanels();
+      onSubcollection?.(subcollectionTarget.dataset.subcollection);
+      return;
+    }
+
+    const breadcrumbProduct = event.target.closest("[data-breadcrumb-product]");
+    if (breadcrumbProduct) {
+      onProduct(breadcrumbProduct.dataset.breadcrumbProduct, { openViewer: true });
       return;
     }
 
@@ -332,11 +458,18 @@ export function createHud({
       onBrowseHome();
     }
     if (action === "search") {
+      setInfoOpen(false);
       searchPanel.hidden = false;
       checkoutPanel.hidden = true;
+      mobileViewer.hidden = true;
       searchInput.focus();
     }
-    if (action === "close-search") searchPanel.hidden = true;
+    if (action === "close-search") {
+      searchPanel.hidden = true;
+      render(lastState);
+    }
+    if (action === "toggle-info") setInfoOpen(!infoOpen);
+    if (action === "close-info") setInfoOpen(false);
     if (action === "checkout") openCheckout("cart");
     if (action === "close-checkout") closeCheckout();
     if (action === "remove-cart") removeCart();
@@ -345,9 +478,14 @@ export function createHud({
     if (action === "checkout-back") stepCheckout(-1);
     if (action === "checkout-next") stepCheckout(1);
     if (action === "toggle-preview-mode") {
-      previewMode = previewMode === "desktop" ? "mobile" : "desktop";
+      previewMode = isMobileLayout() ? "desktop" : "mobile";
       applyPreviewMode();
     }
+    if (action === "toggle-wall-customizer") {
+      wallCustomizerOpen = !wallCustomizerOpen;
+      renderWallCustomizer();
+    }
+    if (action === "mobile-back") navigateMobileBack();
     if (action === "category" && lastState) {
       closeTemporaryPanels();
       onCategory(lastState.activeCategoryId);
@@ -366,6 +504,8 @@ export function createHud({
       const { product } = getProduct(lastState.activeProductId);
       layersExpanded = !layersExpanded;
       renderProductPanel(product, getCategory(lastState.activeCategoryId));
+      renderDesktopCustomization(product, getCategory(lastState.activeCategoryId));
+      renderMobileViewer(lastState, product, getCategory(lastState.activeCategoryId));
       onLayerExpandChange?.(product.id, layersExpanded);
     }
     if (action === "decrement") updateQuantity(-1);
@@ -438,82 +578,105 @@ export function createHud({
   });
 
   searchInput.addEventListener("input", () => renderSearch(searchInput.value));
-  window.addEventListener("resize", applyMobileAttr);
+  wallColorInput.addEventListener("input", () => setWallColor(wallColorInput.value));
+  desktopWallColorInput.addEventListener("input", () => setWallColor(desktopWallColorInput.value));
+  root.addEventListener("input", (event) => {
+    if (event.target.matches("[data-mobile-wall-color-input]")) setWallColor(event.target.value);
+  });
+  window.addEventListener("resize", () => {
+    if (previewMode === "auto") applyPreviewMode();
+    else applyMobileAttr();
+  });
   applyPreviewMode();
 
   function render(state) {
     if (!state) return;
-    lastState = state;
+    const previousMode = lastState?.mode ?? state.mode;
+    // appState is mutated in place by main.js. Keep a snapshot so transition CSS can
+    // distinguish the panel that is leaving from the panel that is arriving.
+    lastState = { ...state };
     root.dataset.mode = state.mode;
+    root.dataset.previousMode = previousMode;
     document.querySelector("#app")?.setAttribute("data-mode", state.mode);
     const { product, category } = getProduct(state.activeProductId);
+    root.dataset.customProduct = product.custom ? "true" : "false";
 
     if (activeProductId !== product.id) {
       activeProductId = product.id;
       layersExpanded = false;
+      activeMobileTool = null;
       quantity = 1;
       checkoutPanel.hidden = true;
       ensureSelection(product, category);
       onLayerExpandChange?.(product.id, false);
     }
 
-    categoryRail.innerHTML = [
-      `<button class="${state.mode === "home" ? "is-active" : ""}" type="button" data-action="browse-home"><span class="nav-dot"></span><span>Gallery View</span></button>`,
-      ...categories.map(
-        (item) => `
-          <button class="${item.id === state.activeCategoryId && state.mode !== "home" ? "is-active" : ""}" type="button" data-category="${item.id}" aria-label="Open ${escapeAttribute(item.label)}">
-            <span class="nav-dot"></span>
-            <span>${escapeHtml(item.label.replace("Objects", "ART"))}</span>
-          </button>
-        `,
-      ),
-    ].join("");
-
     homePanel.hidden = true;
     introBrowse.hidden = state.mode !== "intro";
     categoryRail.hidden = state.mode === "intro";
-    bagButton.hidden = state.mode === "intro";
-    productPanel.hidden = state.mode !== "viewer" || !checkoutPanel.hidden;
+    productPanel.hidden = state.mode !== "viewer" || !checkoutPanel.hidden || infoOpen;
+    desktopCustomizationPanel.hidden = state.mode !== "viewer" || !checkoutPanel.hidden || infoOpen;
     viewerControls.hidden = state.mode !== "viewer";
+    wallCustomizer.hidden = state.mode !== "viewer";
+    mobileViewer.hidden = state.mode !== "viewer" || !checkoutPanel.hidden || !searchPanel.hidden || infoOpen;
     categoryScrollControls.hidden = state.mode !== "category";
     const activeCategory = getCategory(state.activeCategoryId);
     const subcollection = getSubcollection(activeCategory, state.activeSubcollectionId);
-    collectionContext.hidden = state.mode !== "category" || !subcollection;
-    if (subcollection) collectionContext.querySelector("span").textContent = subcollection.label;
-
+    renderSceneNavigation(state, product, activeCategory, subcollection);
+    renderMobileBack(state, activeCategory, subcollection);
     renderProductPanel(product, category);
+    renderDesktopCustomization(product, category);
     renderCheckout(state);
     renderSearch(searchInput.value);
     renderMobileStage(state, product, activeCategory, subcollection);
+    renderWallCustomizer();
+    renderMobileViewer(state, product, category);
     applyCategoryPreview();
   }
 
   // D55: floating DOM text for the portrait charcoal stage — replaces every 3D text surface.
   function renderMobileStage(state, product, activeCategory, subcollection) {
     applyMobileAttr();
-    if (state.mode !== "category") return;
+    if (state.mode !== "category") {
+      delete root.dataset.mobileArray;
+      return;
+    }
+    const showsCollectionChoices = Boolean(activeCategory.subcollections?.length && !subcollection);
+    root.dataset.mobileArray = showsCollectionChoices ? "collections" : "products";
     mCatEyebrow.textContent = subcollection ? activeCategory.label.toUpperCase() : "COLLECTION";
     mCatTitle.textContent = (subcollection?.label ?? activeCategory.label).toUpperCase();
+    mHeroPlaque.hidden = !showsCollectionChoices;
     mHeroPlaque.querySelector("strong").textContent = product.name;
     mHeroPlaque.querySelector("span").textContent = displayPrice(product, activeCategory);
     renderLanePlaque();
   }
 
-  function renderLanePlaque() {
-    const lane = getLaneInfo?.();
+  function renderLanePlaque(lane = getLaneInfo?.()) {
     if (!lane) {
-      mLanePlaque.hidden = true;
+      mRingLabels.replaceChildren();
       return;
     }
-    mLanePlaque.hidden = false;
-    if (lane.isSubcollection) {
-      mLanePlaque.querySelector("strong").textContent = lane.item.label;
-      mLanePlaque.querySelector("span").textContent = `${lane.item.productIds.length} pieces`;
-    } else {
-      const laneCategory = lastState ? getCategory(lastState.activeCategoryId) : null;
-      mLanePlaque.querySelector("strong").textContent = lane.item.name;
-      mLanePlaque.querySelector("span").textContent = laneCategory ? displayPrice(lane.item, laneCategory) : "";
-    }
+    const laneCategory = lastState ? getCategory(lastState.activeCategoryId) : null;
+    mRingLabels.innerHTML = (lane.ring ?? [])
+      // The neighbouring meshes already preview what comes next. One active plaque keeps the
+      // phone UI calm and leaves the navigation arrows unobstructed.
+      .filter(({ active }) => active)
+      .map(({ item, index, active, xPercent, yPercent, scale }, revealOrder) => {
+        const name = lane.isSubcollection ? item.label : item.name;
+        const meta = lane.isSubcollection
+          ? `${item.productIds.length} pieces`
+          : laneCategory
+            ? displayPrice(item, laneCategory)
+            : "";
+        return `
+          <span class="m-ring-label ${active ? "is-active" : ""}" data-ring-index="${index}"
+            style="--ring-x:${xPercent.toFixed(2)}%;--ring-y:${yPercent.toFixed(2)}%;--ring-scale:${scale.toFixed(3)};--ring-order:${revealOrder};--ring-delay:${(2.82 + revealOrder * 0.2).toFixed(2)}s">
+            <strong>${escapeHtml(name)}</strong>
+            <em>${escapeHtml(meta)}</em>
+          </span>
+        `;
+      })
+      .join("");
   }
 
   function displayPrice(product, category) {
@@ -542,6 +705,7 @@ export function createHud({
   }
 
   function renderProductPanel(product, category) {
+    productPanel.querySelector(".panel-kicker").textContent = product.custom ? "Custom studio" : "Product information";
     productPanel.querySelector(".eyebrow").textContent = category.label;
     productPanel.querySelector("h2").textContent = product.name;
     const price = unitPrice(product, category, selectionFor(product.id));
@@ -553,7 +717,167 @@ export function createHud({
     expandButton.textContent = layersExpanded ? "Collapse Layers" : "Expand Layers";
     expandButton.setAttribute("aria-pressed", layersExpanded ? "true" : "false");
     productPanel.querySelector(".quantity-stepper strong").textContent = quantity;
-    productPanel.querySelector(".whatsapp").href = whatsappUrl(product, category);
+    productPanel.querySelector(".viewer-step-row").hidden = Boolean(product.custom);
+    const addButton = productPanel.querySelector('[data-action="add-to-cart"]');
+    const buyButton = productPanel.querySelector('[data-action="buy-now"]');
+    addButton.textContent = product.custom ? "Save Design" : "Add to Cart";
+    buyButton.textContent = product.custom ? "Request Quote" : "Buy Now";
+    const whatsapp = productPanel.querySelector(".whatsapp");
+    whatsapp.href = whatsappUrl(product, category);
+    whatsapp.setAttribute("aria-label", product.custom ? "Discuss custom order on WhatsApp" : "Order via WhatsApp");
+  }
+
+  function renderDesktopCustomization(product, category) {
+    const selection = selectionFor(product.id);
+    desktopCustomizationPanel.querySelector(".desktop-customization-heading p").textContent = product.custom ? "Custom studio" : "Viewer controls";
+    desktopCustomizationPanel.querySelector(".desktop-customization-heading h2").textContent = product.custom ? "Build Yours" : "Customize";
+    desktopVariantGroups.innerHTML = optionGroups(product, category)
+      .map(
+        (group) => `
+          <div class="variant-group ${group.name.toLowerCase() === "color" ? "is-color" : ""}">
+            <p>${escapeHtml(group.name)}</p>
+            <div class="variant-options">${renderOptionButtons(group, selection)}</div>
+          </div>
+        `,
+      )
+      .join("");
+    const layerButton = desktopCustomizationPanel.querySelector(".desktop-layer-expand");
+    layerButton.hidden = product.kind !== "layered";
+    layerButton.textContent = layersExpanded ? "Collapse Layers" : "Expand Layers";
+    layerButton.setAttribute("aria-pressed", layersExpanded ? "true" : "false");
+    desktopWallColorInput.value = wallColor;
+    desktopCustomizationPanel.querySelectorAll("[data-wall-color]").forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.wallColor.toLowerCase() === wallColor);
+    });
+  }
+
+  function renderSceneNavigation(state, product, category, subcollection) {
+    const items = [
+      `<button class="${state.mode === "home" ? "is-active" : ""}" type="button" data-action="browse-home"><span class="nav-dot"></span><span>Home</span></button>`,
+    ];
+    if (state.mode === "category" || state.mode === "viewer") {
+      items.push(`<button class="${state.mode === "category" && !subcollection ? "is-active" : ""}" type="button" data-category="${escapeAttribute(category.id)}"><span class="nav-dot"></span><span>${escapeHtml(category.label)}</span></button>`);
+    }
+    if (subcollection && (state.mode === "category" || state.mode === "viewer")) {
+      items.push(`<button class="${state.mode === "category" ? "is-active" : ""}" type="button" data-subcollection="${escapeAttribute(subcollection.id)}"><span class="nav-dot"></span><span>${escapeHtml(subcollection.label)}</span></button>`);
+    }
+    if (state.mode === "viewer") {
+      items.push(`<button class="is-active" type="button" data-breadcrumb-product="${escapeAttribute(product.id)}"><span class="nav-dot"></span><span>${escapeHtml(product.name)}</span></button>`);
+    }
+    categoryRail.innerHTML = items.join("");
+  }
+
+  function renderMobileBack(state, category, subcollection) {
+    mobileContextBack.hidden = state.mode === "intro";
+    if (state.mode === "viewer") mobileContextBack.textContent = `‹ ${subcollection?.label ?? category.label}`;
+    else if (state.mode === "category") mobileContextBack.textContent = `‹ ${subcollection ? category.label : "Home"}`;
+    else mobileContextBack.textContent = "‹ Intro";
+  }
+
+  function navigateMobileBack() {
+    if (!lastState) return;
+    if (lastState.mode === "viewer") {
+      if (lastState.activeSubcollectionId) onSubcollection?.(lastState.activeSubcollectionId);
+      else onCategory(lastState.activeCategoryId);
+      return;
+    }
+    if (lastState.mode === "category") {
+      if (lastState.activeSubcollectionId) onCategory(lastState.activeCategoryId);
+      else onBrowseHome();
+      return;
+    }
+    if (lastState.mode === "home") onIntro();
+  }
+
+  function setInfoOpen(open) {
+    infoOpen = open;
+    infoPanel.hidden = !infoOpen;
+    infoButton.setAttribute("aria-expanded", infoOpen ? "true" : "false");
+    infoButton.classList.toggle("is-active", infoOpen);
+    if (infoOpen) {
+      searchPanel.hidden = true;
+      checkoutPanel.hidden = true;
+      mobileViewer.hidden = true;
+      productPanel.hidden = true;
+      desktopCustomizationPanel.hidden = true;
+    } else if (lastState) {
+      render(lastState);
+    }
+  }
+
+  function setWallColor(value) {
+    if (!/^#[0-9a-f]{6}$/i.test(value)) return;
+    wallColor = value.toLowerCase();
+    wallColorInput.value = wallColor;
+    desktopWallColorInput.value = wallColor;
+    onWallColorChange?.(wallColor);
+    renderWallCustomizer();
+    if (lastState?.mode === "viewer") {
+      const { product, category } = getProduct(lastState.activeProductId);
+      renderMobileViewer(lastState, product, category);
+    }
+  }
+
+  function renderWallCustomizer() {
+    wallCustomizerBody.hidden = !wallCustomizerOpen;
+    wallCustomizerToggle.setAttribute("aria-expanded", wallCustomizerOpen ? "true" : "false");
+    wallCustomizer.classList.toggle("is-open", wallCustomizerOpen);
+    wallCustomizer.style.setProperty("--active-wall-color", wallColor === "#ffffff" ? "#c0aa89" : wallColor);
+    wallCustomizer.querySelectorAll("[data-wall-color]").forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.wallColor.toLowerCase() === wallColor);
+    });
+  }
+
+  function renderMobileViewer(state, product, category) {
+    if (!state || state.mode !== "viewer") {
+      mobileViewer.hidden = true;
+      return;
+    }
+    mobileViewer.hidden = !checkoutPanel.hidden || !searchPanel.hidden || infoOpen;
+    const groups = optionGroups(product, category);
+    const toolButtons = groups.map((group) => mobileToolButton(group.name, selectionFor(product.id)[group.name]));
+    toolButtons.push(mobileToolButton("Wall", wallColor === "#ffffff" ? "Plaster" : "Custom"));
+    if (product.kind === "layered") toolButtons.push(mobileToolButton("Layers", layersExpanded ? "Open" : "Closed", true));
+    mobileViewerTools.innerHTML = toolButtons.join("");
+
+    mobileViewer.querySelector(".mobile-commerce-copy strong").textContent = product.name;
+    mobileViewer.querySelector(".mobile-commerce-copy span").textContent = displayPrice(product, category);
+    mobileViewer.querySelector(".mobile-commerce-quantity strong").textContent = quantity;
+    mobileViewer.querySelector(".mobile-cart-action").textContent = product.custom ? "Save" : "Cart";
+    mobileViewer.querySelector(".mobile-buy-action").textContent = product.custom ? "Quote" : "Buy";
+
+    const activeGroup = groups.find((group) => group.name === activeMobileTool);
+    mobileOptionPopover.hidden = !activeMobileTool || activeMobileTool === "Layers";
+    if (activeGroup) {
+      mobileOptionPopover.innerHTML = `
+        <span class="mobile-inline-label">${escapeHtml(activeGroup.name)}</span>
+        <div class="mobile-popover-options">${renderOptionButtons(activeGroup, selectionFor(product.id))}</div>
+      `;
+    } else if (activeMobileTool === "Wall") {
+      mobileOptionPopover.innerHTML = `
+        <span class="mobile-inline-label">Wall</span>
+        <div class="mobile-wall-presets">
+          <button class="${wallColor === "#ffffff" ? "is-selected" : ""}" type="button" data-wall-color="#ffffff" style="--swatch:#c0aa89" aria-label="Original warm plaster"></button>
+          <button class="${wallColor === "#f2eee6" ? "is-selected" : ""}" type="button" data-wall-color="#f2eee6" style="--swatch:#f2eee6" aria-label="Gallery white"></button>
+          <button class="${wallColor === "#b77655" ? "is-selected" : ""}" type="button" data-wall-color="#b77655" style="--swatch:#b77655" aria-label="Terracotta"></button>
+          <button class="${wallColor === "#514b46" ? "is-selected" : ""}" type="button" data-wall-color="#514b46" style="--swatch:#514b46" aria-label="Charcoal"></button>
+          <input type="color" value="${wallColor}" data-mobile-wall-color-input aria-label="Custom wall color" />
+        </div>
+      `;
+    } else {
+      mobileOptionPopover.innerHTML = "";
+    }
+  }
+
+  function mobileToolButton(name, value, directAction = false) {
+    const active = activeMobileTool === name;
+    const action = directAction ? ' data-action="toggle-layer-expand"' : ` data-mobile-tool="${escapeAttribute(name)}"`;
+    return `
+      <button class="mobile-tool-button ${active ? "is-active" : ""}" type="button"${action} aria-label="${escapeAttribute(name)}: ${escapeAttribute(value)}" aria-pressed="${active}">
+        <span class="mobile-tool-icon" data-tool-icon="${escapeAttribute(name.toLowerCase())}" aria-hidden="true"></span>
+        <small>${escapeHtml(shortToolName(name))}</small>
+      </button>
+    `;
   }
 
   function renderCheckout(state) {
@@ -589,8 +913,8 @@ export function createHud({
     checkoutPanel.querySelector(".confirm-card strong").textContent = product.name;
     checkoutPanel.querySelector(".confirm-card small").textContent = `${selectionSummary(product, category)} · Qty ${quantity} · ${subtotalText}`;
     const final = checkoutPanel.querySelector(".checkout-final");
-    final.href = paymentMethod === "shopify" ? productUrl(product) : whatsappUrl(product, category);
-    final.textContent = paymentMethod === "whatsapp" ? "Send to WhatsApp" : paymentMethod === "cod" ? "Request COD" : "Place Order";
+    final.href = product.custom || paymentMethod !== "shopify" ? whatsappUrl(product, category) : productUrl(product);
+    final.textContent = product.custom ? "Send Custom Request" : paymentMethod === "whatsapp" ? "Send to WhatsApp" : paymentMethod === "cod" ? "Request COD" : "Place Order";
     checkoutPanel.querySelector(".checkout-back").hidden = checkoutStep === "cart";
     checkoutPanel.querySelector(".checkout-next").hidden = checkoutStep === "confirm";
     final.hidden = checkoutStep !== "confirm";
@@ -640,10 +964,17 @@ export function createHud({
 
   function openCheckout(step = "cart") {
     if (!lastState) return;
+    const { product } = getProduct(lastState.activeProductId);
+    if (product.custom) paymentMethod = "whatsapp";
     checkoutStep = step;
     checkoutPanel.hidden = false;
+    infoOpen = false;
+    infoPanel.hidden = true;
+    infoButton.setAttribute("aria-expanded", "false");
     productPanel.hidden = true;
+    desktopCustomizationPanel.hidden = true;
     searchPanel.hidden = true;
+    mobileViewer.hidden = true;
     renderCheckout(lastState);
   }
 
@@ -672,29 +1003,43 @@ export function createHud({
   function closeTemporaryPanels() {
     searchPanel.hidden = true;
     checkoutPanel.hidden = true;
+    infoOpen = false;
+    infoPanel.hidden = true;
+    infoButton.setAttribute("aria-expanded", "false");
   }
 
   function isMobileLayout() {
-    return previewMode === "mobile" || window.innerWidth <= 760;
+    if (previewMode === "mobile") return true;
+    if (previewMode === "desktop") return false;
+    return window.innerWidth <= 760;
   }
 
   // data-mobile drives ALL portrait-only CSS (preview toggle AND real narrow screens),
   // so mobile rules never need duplicating into media queries.
   function applyMobileAttr() {
     const mobile = isMobileLayout();
+    const forcedPreview = previewMode === "mobile" && window.innerWidth > 760;
     root.dataset.mobile = mobile ? "true" : "false";
-    document.querySelector("#app")?.setAttribute("data-mobile", mobile ? "true" : "false");
+    const app = document.querySelector("#app");
+    app?.setAttribute("data-mobile", mobile ? "true" : "false");
+    app?.setAttribute("data-mobile-preview", forcedPreview ? "true" : "false");
     mobileStage.setAttribute("aria-hidden", mobile ? "false" : "true");
   }
 
   function applyPreviewMode() {
-    const mobile = previewMode === "mobile";
-    root.dataset.previewMode = previewMode;
-    document.querySelector("#app")?.setAttribute("data-preview-mode", previewMode);
-    previewToggle.textContent = mobile ? "Desktop" : "Mobile";
+    const mobile = isMobileLayout();
+    const activeMode = mobile ? "mobile" : "desktop";
+    // CSS and Three.js now receive the same resolved mode. Previously the scene could be
+    // mobile while this attribute stayed desktop, which broke the real-device HUD.
+    root.dataset.previewMode = activeMode;
+    document.querySelector("#app")?.setAttribute("data-preview-mode", activeMode);
+    previewToggle.textContent = mobile ? "Use desktop view" : "Use mobile view";
     previewToggle.setAttribute("aria-pressed", mobile ? "true" : "false");
     applyMobileAttr();
     onPreviewModeChange?.(previewMode);
+    // A responsive mode change rebuilds the viewer mesh; restore the remembered product
+    // variant on the next frame after Three.js has installed the new display object.
+    window.requestAnimationFrame(notifyVariant);
   }
 
   function ensureSelection(product, category) {
@@ -714,19 +1059,24 @@ export function createHud({
     return optionGroups(product, category)
       .map(
         (group) => `
-          <div class="variant-group">
+          <div class="variant-group ${group.name.toLowerCase() === "color" ? "is-color" : ""}">
             <p>${escapeHtml(group.name)}</p>
             <div class="variant-options">
-              ${group.values
-                .map((value) => {
-                  const selected = selection[group.name] === value;
-                  return `<button class="chip ${selected ? "is-selected" : ""}" type="button" data-option-group="${escapeAttribute(group.name)}" data-option-value="${escapeAttribute(value)}" aria-pressed="${selected}">${escapeHtml(value)}</button>`;
-                })
-                .join("")}
+              ${renderOptionButtons(group, selection)}
             </div>
           </div>
         `,
       )
+      .join("");
+  }
+
+  function renderOptionButtons(group, selection) {
+    return group.values
+      .map((value) => {
+        const selected = selection[group.name] === value;
+        const swatch = group.name.toLowerCase() === "color" ? ` style="--option-color:${colorHexForValue(value)}"` : "";
+        return `<button class="chip ${group.name.toLowerCase() === "color" ? "color-chip" : ""} ${selected ? "is-selected" : ""}" type="button" data-option-group="${escapeAttribute(group.name)}" data-option-value="${escapeAttribute(value)}" aria-pressed="${selected}"${swatch}>${escapeHtml(value)}</button>`;
+      })
       .join("");
   }
 
@@ -738,11 +1088,12 @@ export function createHud({
   }
 
   function whatsappUrl(product, category) {
-    const message = `I want to order ${product.name} from Black Aesthetics. ${selectionSummary(product, category)}. Quantity: ${quantity}`;
+    const action = product.custom ? "start a custom order for" : "order";
+    const message = `I want to ${action} ${product.name} from Black Aesthetics. ${selectionSummary(product, category)}. Quantity: ${quantity}`;
     return `https://wa.me/?text=${encodeURIComponent(message)}`;
   }
 
-  return { update: render, previewCategory, setInteractionLocked };
+  return { update: render, previewCategory, setInteractionLocked, updateMobileRing: renderLanePlaque };
 }
 
 function optionGroups(product, category) {
@@ -752,6 +1103,8 @@ function optionGroups(product, category) {
     // matched products. Site-side Thickness/Material append for wall art + digital.
     const groups = commerce.options.map((group) => ({ name: group.name, values: [...group.values] }));
     if (isPanelKind(product)) groups.push(THICKNESS_GROUP, MATERIAL_GROUP);
+    if (product.kind === "wall-art" && !hasOptionGroup(groups, "Color")) groups.push(WALL_ART_COLOR_GROUP);
+    if (category.id === "3d-objects" && !hasOptionGroup(groups, "Color")) groups.push(OBJECT_COLOR_GROUP);
     return groups;
   }
 
@@ -767,7 +1120,7 @@ function optionGroups(product, category) {
   if (category.id === "3d-objects") {
     return [
       { name: "Scale", values: ["80 mm", "120 mm", "Custom"] },
-      { name: "Color", values: ["Matte black", "Natural PLA"] },
+      OBJECT_COLOR_GROUP,
     ];
   }
 
@@ -778,11 +1131,42 @@ function optionGroups(product, category) {
     ];
   }
 
-  return [
+  const groups = [
     { name: "Size", values: ["12x18 inches", "18x24 inches", "24x36 inches"] },
     THICKNESS_GROUP,
     MATERIAL_GROUP,
   ];
+  if (product.kind === "wall-art") groups.push(WALL_ART_COLOR_GROUP);
+  return groups;
+}
+
+function hasOptionGroup(groups, name) {
+  return groups.some((group) => group.name.toLowerCase() === name.toLowerCase());
+}
+
+function colorHexForValue(value) {
+  if (COLOR_HEX[value]) return COLOR_HEX[value];
+  const normalized = String(value).toLowerCase();
+  if (normalized.includes("black")) return COLOR_HEX["Matte Black"];
+  if (normalized.includes("white")) return COLOR_HEX["Warm White"];
+  if (normalized.includes("gold")) return COLOR_HEX["Antique Gold"];
+  if (normalized.includes("natural") || normalized.includes("pla")) return COLOR_HEX["Natural PLA"];
+  return COLOR_HEX["Matte Black"];
+}
+
+function shortToolName(name) {
+  const labels = {
+    Size: "Size",
+    Scale: "Scale",
+    Material: "Mat",
+    Color: "Color",
+    Thickness: "Depth",
+    Finish: "Finish",
+    Wall: "Wall",
+    Quantity: "Qty",
+    Layers: "Layers",
+  };
+  return labels[name] ?? name.slice(0, 6);
 }
 
 const isSizeGroup = (name) => /size|scale/i.test(name);
@@ -830,10 +1214,13 @@ function variantParams(product, category, selection) {
     thicknessMul = mm / 2; // 2mm is the modeled baseline depth
   }
   const acrylic = isPanelKind(product) && selection.Material === "Acrylic";
-  return { sizeRatio, thicknessMul, acrylic };
+  const supportsColor = product.kind === "wall-art" || category.id === "3d-objects";
+  const color = supportsColor && selection.Color ? colorHexForValue(selection.Color) : null;
+  return { sizeRatio, thicknessMul, acrylic, color };
 }
 
 function productDescription(product, category) {
+  if (product.custom) return product.customDescription;
   if (product.kind === "object") return `${product.material}. Printed to order and confirmed through Shopify or WhatsApp.`;
   return `${product.material}. ${category.description}`;
 }

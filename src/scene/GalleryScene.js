@@ -15,17 +15,19 @@ const CATEGORY_CAMERA = new THREE.Vector3(-3.12, 1.82, 7.85);
 const CATEGORY_LOOK = new THREE.Vector3(-1.55, 1.62, 0);
 const CATEGORY_FRONTAL_CAMERA = new THREE.Vector3(1.15, 1.82, 10.0);
 const CATEGORY_FRONTAL_LOOK = new THREE.Vector3(1.15, 1.62, 0);
-// Portrait cameras hug the wall so it fills the 9:16 frame edge-to-edge: no black band above
-// the wall top (3.6), only a narrow floor strip below. Derived from fov 43° → halfH = tan(21.5°)·z.
+// Portrait cameras hug the D57 tall wall while using the device's real aspect ratio.
+// FOV 43° keeps the product readable against the full-height wall without letterboxing.
 const CATEGORY_MOBILE_CAMERA = new THREE.Vector3(0.9, 1.66, 4.7);
 const CATEGORY_MOBILE_LOOK = new THREE.Vector3(0.9, 1.66, 0);
 const CATEGORY_MOBILE_FRONTAL_CAMERA = new THREE.Vector3(0.9, 1.66, 4.7);
 const CATEGORY_MOBILE_FRONTAL_LOOK = new THREE.Vector3(0.9, 1.66, 0);
 const VIEWER_CAMERA = new THREE.Vector3(0, 1.78, 6.55);
 const VIEWER_LOOK = new THREE.Vector3(0, 1.72, 0);
-const VIEWER_MOBILE_CAMERA = new THREE.Vector3(0, 1.82, 4.4);
-const VIEWER_MOBILE_LOOK = new THREE.Vector3(0, 1.82, 0);
-const MOBILE_CAMERA_ASPECT = 9 / 16;
+// D68: a selected mobile product is already centered in the final-product ring. The viewer
+// inherits that exact camera/look instead of moving the product and then chasing it with camera.
+const VIEWER_MOBILE_CAMERA = new THREE.Vector3(0.9, 1.66, 4.7);
+const VIEWER_MOBILE_LOOK = new THREE.Vector3(0.9, 1.66, 0);
+const MOBILE_PREVIEW_ASPECT = 390 / 844;
 const MOBILE_BREAKPOINT = 760;
 const MOBILE_HOME_CAMERA_Z = 4.35;
 const MOBILE_HOME_Y = 1.5;
@@ -36,8 +38,8 @@ const HOME_HALF_H = 1.58;
 
 // Home dolly distance from the wall plane (z = 0) so the logo AND all four bays fit with a
 // 5% margin at any landscape aspect — narrow landscape (16:10, 4:3) pulls back, ultra-wide
-// eases in. Portrait does NOT force-fit the logo (everything would go tiny; the mobile rail
-// handles navigation), so it only gets a gentle pull-back. Camera x/y and look stay locked.
+// eases in. Portrait does NOT force-fit the desktop composition (everything would go tiny),
+// so it uses its dedicated vertical layout. Camera x/y and look stay locked.
 function homeCameraZ(aspect, fovYRad) {
   if (aspect < 0.78) return MOBILE_HOME_CAMERA_Z;
   const halfTan = Math.tan(fovYRad / 2);
@@ -64,17 +66,45 @@ const SMALL_GRID = {
   stepX: 1.36,
   rowY: [2.47, 1.0],
 };
-// Portrait category array (ref 03): title on top, hero at ~2.05, then a vertical scroll column
-// below the hero — one full slot between hero bottom and the floor strip, neighbours fading at
-// the edges. edgeFade overrides the default 0.82 band, which would shrink even the centred tile
-// in this short lane.
-const MOBILE_GRID = {
-  x: 0.9,
-  startY: 0.55,
-  stepY: 0.85,
-  visibleTop: 0.95,
-  visibleBottom: -0.25,
-  edgeFade: 0.35,
+// Portrait category products orbit through a shallow horizontal ring. The centred item is
+// nearest the viewer; neighbours arc backwards, shrink, and rotate to preserve depth/readability.
+const MOBILE_COLLECTION_RING = {
+  ring: true,
+  centerX: 0.9,
+  centerY: 0.74,
+  step: 1,
+  angleStep: 0.72,
+  radiusX: 1.12,
+  radiusZ: 0.34,
+  visibleSlots: 2.45,
+  labelYPercent: 85.8,
+  mountWidth: 1.02,
+  mountHeight: 1.08,
+  flatDisplayWidth: 0.76,
+  flatDisplayHeight: 0.84,
+  objectDisplayWidth: 0.68,
+  objectDisplayHeight: 0.64,
+};
+// D62: once mobile browsing reaches actual products, the separate category hero is removed.
+// The active ring item takes over the visual centre at a substantially larger display size.
+const MOBILE_PRODUCT_RING = {
+  ...MOBILE_COLLECTION_RING,
+  productArray: true,
+  centerY: 1.62,
+  angleStep: 0.68,
+  radiusX: 1.55,
+  radiusZ: 0.42,
+  visibleSlots: 1.45,
+  scaleFalloff: 0.42,
+  minScale: 0.3,
+  // The active plaque sits under the centred product; arrows flank the product itself.
+  labelYPercent: 70.5,
+  mountWidth: 1.42,
+  mountHeight: 1.5,
+  flatDisplayWidth: 1.1,
+  flatDisplayHeight: 1.24,
+  objectDisplayWidth: 0.98,
+  objectDisplayHeight: 0.96,
 };
 const HERO_BAY_RIGHT_WALL_X = -1.39;
 const SMALL_BAY_HALF_WIDTH = 0.48;
@@ -82,11 +112,11 @@ const HERO_GRID_VANISH_X = HERO_BAY_RIGHT_WALL_X + SMALL_BAY_HALF_WIDTH + 0.08;
 const HERO_GRID_FULL_X = SMALL_GRID.startX - 0.12;
 const GRID_EDGE_SCALE_DISTANCE = HERO_GRID_FULL_X - HERO_GRID_VANISH_X;
 
-const TRACK_STEM_X = [-5.2, -2.6, 0, 2.6, 5.2, 7.8, 10.4];
 // Blender parity: all colors below are the linear values from BAstore.blend converted to sRGB.
 // Warm key (1, 0.72, 0.45) linear -> #ffddb3. Never eyeball these — recompute from the .blend.
 const LIGHT_COLOR = 0xffddb3;
 const FRONT_FILL_COLOR = 0xffeacb;
+const ABSOLUTE_PRODUCT_BLACK = 0x000000;
 const PRODUCT_WALL_CLEARANCE = 0.045;
 const VIEWER_WALL_CLEARANCE = 0.08;
 const PRODUCT_LATCH_DISTANCE = 0.82;
@@ -94,12 +124,17 @@ const LAYER_ASSEMBLE_LATCH_DISTANCE = 0.58;
 const LAYER_ASSEMBLE_INTERVAL = 0.22;
 const LAYER_ASSEMBLE_DURATION = 0.58;
 const LAYER_EXPAND_GAP = 0.075;
+const HOME_GALLERY_REVEAL_START = 1.24;
+// One complete beat per section: piece lands (0.46s), its UI appears (0.42s), then the
+// next section may start. The small final gap prevents two sections reading as one spawn.
+const HOME_GALLERY_REVEAL_INTERVAL = 0.98;
+const HOME_GALLERY_REVEAL_DURATION = 0.46;
 
 const WALL_FONT = new FontLoader().parse(fontData);
 RectAreaLightUniformsLib.init();
 
 export class GalleryScene {
-  constructor({ canvas, categories, onCategorySelect, onSubcollectionSelect, onProductSelect, onProductOpen, onCategoryPreview, onInteractionLock }) {
+  constructor({ canvas, categories, onCategorySelect, onSubcollectionSelect, onProductSelect, onProductOpen, onCategoryPreview, onInteractionLock, onMobileLaneChange }) {
     this.canvas = canvas;
     this.categories = categories;
     this.onCategorySelect = onCategorySelect;
@@ -108,6 +143,7 @@ export class GalleryScene {
     this.onProductOpen = onProductOpen;
     this.onCategoryPreview = onCategoryPreview;
     this.onInteractionLock = onInteractionLock;
+    this.onMobileLaneChange = onMobileLaneChange;
     this.textureLoader = new THREE.TextureLoader();
     this.svgLoader = new SVGLoader();
     this.stlLoader = new STLLoader();
@@ -147,12 +183,15 @@ export class GalleryScene {
     this.gridTrack = null;
     this.pendingGridBuilds = new Map();
     this.gridBuildScheduled = false;
+    this.gridBuildTimer = null;
+    this.gridRevealCounter = 0;
     this.transition = null;
     this.pendingSelectionBay = null;
     this.categoryCameraIsFrontal = false;
     this.layerStackAnimations = new Set();
     this.layersExpanded = false;
-    this.previewMode = "desktop";
+    // Start responsive; the header toggle can then explicitly force either layout.
+    this.previewMode = "auto";
     this.mobileLayout = false;
     this.renderViewport = null;
 
@@ -173,7 +212,6 @@ export class GalleryScene {
 
     this.materials = this.createMaterials();
     this.architecture = new THREE.Group();
-    this.atmosphereGroup = new THREE.Group();
     this.logoGroup = new THREE.Group();
     this.introGroup = new THREE.Group();
     this.homeGroup = new THREE.Group();
@@ -181,9 +219,8 @@ export class GalleryScene {
     this.viewerGroup = new THREE.Group();
     this.transitionGroup = new THREE.Group();
 
-    this.scene.add(this.architecture, this.atmosphereGroup, this.logoGroup, this.introGroup, this.homeGroup, this.categoryGroup, this.viewerGroup, this.transitionGroup);
+    this.scene.add(this.architecture, this.logoGroup, this.introGroup, this.homeGroup, this.categoryGroup, this.viewerGroup, this.transitionGroup);
     this.createArchitecture();
-    this.createSharedAtmosphere();
     this.createMobileStage();
     this.createIntro();
     this.createHome();
@@ -201,19 +238,20 @@ export class GalleryScene {
     const previousState = this.state ? { ...this.state } : null;
     const sourceBay = this.pendingSelectionBay ?? this.findTransitionSource(previousState, state);
     const sourceProduct = this.findTransitionProduct(sourceBay);
-    const sourceClone = sourceProduct ? this.cloneInWorld(sourceProduct) : null;
-    // The old wall mount remains in the outgoing scene, but its selected product is detached into
-    // its own travel clone so the mesh can leave the wall without appearing twice.
-    const sourceWasVisible = sourceProduct?.visible;
-    if (sourceProduct) sourceProduct.visible = false;
+    const destinationProductId = this.transitionDestinationProductId(state);
+    const sourceProductId = sourceProduct?.userData?.productId;
+    // Matching products have one owner throughout the handoff. Detach the real display object,
+    // leave only an invisible transform anchor behind, and reparent that same object at the end.
+    const source = sourceProduct && sourceProductId && sourceProductId === destinationProductId
+      ? this.detachTransitionProduct(sourceProduct)
+      : null;
     // Heavy scenes clear around the selected hero instead of cloning whole grids/walls.
-    // The traveling source clone preserves continuity without duplicating dozens of meshes.
+    // The detached source is absent from this outgoing snapshot, so it cannot appear twice.
     const introToHome = previousState?.mode === "intro" && state.mode === "home";
     const outgoingClone =
       previousState && !introToHome
         ? this.cloneInWorld(this.activeGroup(previousState.mode))
         : null;
-    if (sourceProduct) sourceProduct.visible = sourceWasVisible;
     this.pendingSelectionBay = null;
     this.lastSignature = signature;
     this.state = { ...state };
@@ -228,12 +266,14 @@ export class GalleryScene {
     if (state.mode === "intro") {
       this.clickable = [];
       this.targetCamera.copy(HOME_CAMERA);
-      this.targetCamera.x = homeCameraX(this.camera.aspect);
-      this.targetCamera.y = homeCameraY(this.camera.aspect);
-      this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
+      this.targetCamera.x = this.isMobileLayout() ? -4 : homeCameraX(this.camera.aspect);
+      this.targetCamera.y = this.isMobileLayout() ? MOBILE_HOME_Y : homeCameraY(this.camera.aspect);
+      this.targetCamera.z = this.isMobileLayout()
+        ? MOBILE_HOME_CAMERA_Z
+        : homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
       this.targetLook.copy(HOME_LOOK);
       this.targetLook.x = this.targetCamera.x;
-      this.targetLook.y = homeLookY(this.camera.aspect);
+      this.targetLook.y = this.isMobileLayout() ? MOBILE_HOME_Y : homeLookY(this.camera.aspect);
       this.applyHomeLayout();
       this.setIntroLayout();
       this.resetHomeGalleryReveal();
@@ -244,13 +284,15 @@ export class GalleryScene {
     if (state.mode === "home") {
       this.clickable = [...this.homeClickTargets];
       this.targetCamera.copy(HOME_CAMERA);
-      this.targetCamera.x = homeCameraX(this.camera.aspect);
-      this.targetCamera.y = homeCameraY(this.camera.aspect);
+      this.targetCamera.x = this.isMobileLayout() ? -4 : homeCameraX(this.camera.aspect);
+      this.targetCamera.y = this.isMobileLayout() ? MOBILE_HOME_Y : homeCameraY(this.camera.aspect);
       // Re-entering home: refit the dolly for the live viewport so logo + bays frame fully.
-      this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
+      this.targetCamera.z = this.isMobileLayout()
+        ? MOBILE_HOME_CAMERA_Z
+        : homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
       this.targetLook.copy(HOME_LOOK);
       this.targetLook.x = this.targetCamera.x;
-      this.targetLook.y = homeLookY(this.camera.aspect);
+      this.targetLook.y = this.isMobileLayout() ? MOBILE_HOME_Y : homeLookY(this.camera.aspect);
       this.applyHomeLayout();
       if (previousState?.mode === "intro") {
         this.introGroup.visible = true;
@@ -262,7 +304,7 @@ export class GalleryScene {
       this.startTransition(
         previousState,
         outgoingClone,
-        sourceClone,
+        source,
         this.homeBays?.get(state.activeCategoryId),
         this.homeProducts?.get(state.activeCategoryId),
       );
@@ -276,7 +318,7 @@ export class GalleryScene {
       this.buildCategory(category, product);
       this.categoryCameraIsFrontal = false;
       this.setCategoryCamera();
-      this.startTransition(previousState, outgoingClone, sourceClone, this.categoryBigBay, this.categoryBigProduct);
+      this.startTransition(previousState, outgoingClone, source, this.categoryBigBay, this.categoryBigProduct);
       return;
     }
 
@@ -285,21 +327,29 @@ export class GalleryScene {
     this.viewerOrbit = 0;
     this.targetCamera.copy(this.isMobileLayout() ? VIEWER_MOBILE_CAMERA : VIEWER_CAMERA);
     this.targetLook.copy(this.isMobileLayout() ? VIEWER_MOBILE_LOOK : VIEWER_LOOK);
-    this.startTransition(previousState, outgoingClone, sourceClone, this.viewerBay, this.viewerProduct);
+    this.startTransition(previousState, outgoingClone, source, this.viewerBay, this.viewerProduct);
   }
 
-  setPreviewMode(mode = "desktop") {
-    this.previewMode = mode === "mobile" ? "mobile" : "desktop";
+  setPreviewMode(mode = "auto") {
+    this.previewMode = ["mobile", "desktop"].includes(mode) ? mode : "auto";
     this.resize();
   }
 
   isMobileLayout() {
-    return this.previewMode === "mobile" || window.innerWidth <= MOBILE_BREAKPOINT;
+    if (this.previewMode === "mobile") return true;
+    if (this.previewMode === "desktop") return false;
+    return window.innerWidth <= MOBILE_BREAKPOINT;
   }
 
-  mobileFrame(width, height) {
-    const frameWidth = Math.min(width, height * MOBILE_CAMERA_ASPECT);
-    const frameHeight = Math.min(height, frameWidth / MOBILE_CAMERA_ASPECT);
+  isForcedMobilePreview() {
+    return this.previewMode === "mobile" && window.innerWidth > MOBILE_BREAKPOINT;
+  }
+
+  mobilePreviewFrame(width, height) {
+    const availableWidth = Math.max(1, width - 24);
+    const availableHeight = Math.max(1, height - 24);
+    const frameWidth = Math.min(availableWidth, availableHeight * MOBILE_PREVIEW_ASPECT);
+    const frameHeight = frameWidth / MOBILE_PREVIEW_ASPECT;
     return {
       left: (width - frameWidth) / 2,
       top: (height - frameHeight) / 2,
@@ -369,6 +419,105 @@ export class GalleryScene {
     return clone;
   }
 
+  transitionDestinationProductId(nextState) {
+    if (!nextState || nextState.mode === "intro") return null;
+    if (nextState.mode === "home") {
+      return this.homeProducts?.get(nextState.activeCategoryId)?.userData?.productId ?? null;
+    }
+    return nextState.activeProductId ?? null;
+  }
+
+  transitionObjectSize(object) {
+    if (object?.userData?.transitionWorldSize) return object.userData.transitionWorldSize.clone();
+    return new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3());
+  }
+
+  replaceProductReference(previous, replacement) {
+    if (!previous || !replacement) return;
+    this.homeProducts?.forEach((value, key) => {
+      if (value === previous) this.homeProducts.set(key, replacement);
+    });
+    this.homeZones?.forEach((entry) => {
+      entry.products?.forEach((item) => {
+        if (item.object === previous) {
+          item.object = replacement;
+          item.baseScale = replacement.scale.clone();
+          item.basePosition = replacement.position.clone();
+        }
+      });
+    });
+    this.homeGalleryRevealItems?.forEach((item) => {
+      if (item.object === previous) item.object = replacement;
+    });
+    this.gridBays?.forEach((entry) => {
+      if (entry.productDisplay === previous) {
+        entry.productDisplay = replacement;
+        entry.productBaseScale = replacement.scale.clone();
+        entry.productBaseZ = replacement.position.z;
+      }
+    });
+    if (this.categoryBigProduct === previous) this.categoryBigProduct = replacement;
+    if (this.viewerProduct === previous) this.viewerProduct = replacement;
+  }
+
+  detachTransitionProduct(object) {
+    if (!object?.parent) return null;
+    object.updateWorldMatrix(true, true);
+    const anchor = new THREE.Group();
+    anchor.name = `transition-anchor:${object.userData.productId}`;
+    anchor.position.copy(object.position);
+    anchor.quaternion.copy(object.quaternion);
+    anchor.scale.copy(object.scale);
+    anchor.visible = false;
+    anchor.userData = {
+      transitionAnchor: true,
+      transitionProduct: true,
+      productId: object.userData.productId,
+      transitionWorldSize: this.transitionObjectSize(object),
+    };
+    object.parent.add(anchor);
+    this.replaceProductReference(object, anchor);
+    object.userData.transitionReturnAnchor = anchor;
+    this.transitionGroup.attach(object);
+    object.visible = true;
+    return object;
+  }
+
+  commitTransitionProduct(source, destinationProduct, preserveTransform = false) {
+    const target = destinationProduct?.parent
+      ? destinationProduct
+      : source?.userData?.transitionReturnAnchor;
+    if (!source || !target?.parent) return false;
+    const parent = target.parent;
+    const sourceSize = this.transitionObjectSize(source);
+    const targetSize = this.transitionObjectSize(target);
+    // SVG/STL placeholders can resolve while the object is travelling. Refit once at the
+    // handoff boundary so the real reused geometry matches the destination's final footprint.
+    const landingScaleCorrection = preserveTransform
+      ? 1
+      : THREE.MathUtils.clamp(
+          Math.min(
+            targetSize.x / Math.max(0.001, sourceSize.x),
+            targetSize.y / Math.max(0.001, sourceSize.y),
+          ),
+          0.05,
+          20,
+        );
+    source.scale.multiplyScalar(landingScaleCorrection);
+    parent.attach(source);
+    source.visible = true;
+    source.userData.transitionProduct = true;
+    source.userData.viewerProduct = Boolean(target.userData?.viewerProduct);
+    delete source.userData.transitionReturnAnchor;
+    this.replaceProductReference(target, source);
+    parent.remove(target);
+    if (!target.userData?.transitionAnchor) disposeObject3D(target);
+    if (this.viewerProduct === source && this.viewerProductInfo) {
+      this.viewerProductInfo.baseScale = source.scale.clone();
+    }
+    return true;
+  }
+
   startTransition(previousState, outgoing, source, destinationBay, destinationProduct) {
     if (!previousState) return;
     this.onInteractionLock?.(true);
@@ -376,6 +525,56 @@ export class GalleryScene {
     const cameraEnd = this.targetCamera.clone();
     const lookEnd = this.targetLook.clone();
     const outgoingItems = outgoing ? this.collectOutgoingItems(outgoing) : [];
+    const outgoingStagger = this.isMobileLayout() ? 0.12 : 0.07;
+    const outgoingDuration = 0.34;
+    const outgoingEndAt = outgoingItems.length
+      ? (outgoingItems.length - 1) * outgoingStagger + outgoingDuration
+      : 0;
+    const stationaryMobileViewerHandoff = Boolean(
+      this.isMobileLayout()
+      && this.gridLayout?.productArray
+      && source
+      && (
+        (previousState.mode === "category" && this.state.mode === "viewer")
+        || (previousState.mode === "viewer" && this.state.mode === "category")
+      ),
+    );
+    const sourceMoveAt = outgoingEndAt + (stationaryMobileViewerHandoff ? 0.02 : 0.12);
+    const sourceMoveDuration = stationaryMobileViewerHandoff ? 0.001 : 0.72;
+    const cameraMoveAt = stationaryMobileViewerHandoff
+      ? sourceMoveAt
+      : source
+        ? sourceMoveAt + sourceMoveDuration + 0.1
+        : outgoingEndAt + 0.14;
+    const cameraMoveDuration = stationaryMobileViewerHandoff ? 0.001 : 0.68;
+    const destinationRevealAt = stationaryMobileViewerHandoff
+      ? outgoingEndAt + 0.08
+      : cameraMoveAt + cameraMoveDuration + 0.1;
+    const categoryTextAt = destinationRevealAt + 0.1;
+    const gridRevealAt = categoryTextAt + (this.categoryDescription ? 0.5 : 0.22);
+    const homeRevealAt = destinationRevealAt + 0.1;
+
+    if (this.state.mode === "home") {
+      const homePieceStart = introToHome ? HOME_GALLERY_REVEAL_START : homeRevealAt;
+      const app = this.canvas.closest("#app");
+      app?.style.setProperty("--home-ui-start", `${(homePieceStart + HOME_GALLERY_REVEAL_DURATION + 0.04).toFixed(2)}s`);
+      if (!introToHome) {
+        this.homeZones?.forEach((entry) => {
+          entry.revealProgress = 0;
+          entry.group.visible = false;
+          entry.group.scale.setScalar(entry.layoutScale ?? 1);
+          entry.products?.forEach((item) => {
+            if (item.object.userData?.transitionAnchor || item.object.parent !== entry.group) return;
+            item.object.position.copy(item.basePosition);
+            item.object.scale.copy(item.baseScale).multiplyScalar(0.001);
+          });
+          entry.revealDecor?.forEach((item) => {
+            item.object.position.copy(item.basePosition);
+            item.object.scale.copy(item.baseScale).multiplyScalar(0.001);
+          });
+        });
+      }
+    }
 
     if (outgoing) this.transitionGroup.add(outgoing);
     if (source) this.transitionGroup.add(source);
@@ -384,33 +583,39 @@ export class GalleryScene {
     let sourceEnd = null;
     let sourceStartScale = null;
     let sourceEndScale = null;
+    let sourceStartQuaternion = null;
+    let sourceEndQuaternion = null;
     if (source && destinationBay) {
       destinationBay.updateWorldMatrix(true, true);
       sourceStart = source.position.clone();
       sourceEnd = new THREE.Vector3();
       (destinationProduct ?? destinationBay).getWorldPosition(sourceEnd);
       sourceStartScale = source.scale.clone();
+      sourceStartQuaternion = source.quaternion.clone();
+      sourceEndQuaternion = new THREE.Quaternion();
+      (destinationProduct ?? destinationBay).getWorldQuaternion(sourceEndQuaternion);
       const sourceSize = new THREE.Vector3();
       const destinationSize = new THREE.Vector3();
-      new THREE.Box3().setFromObject(source).getSize(sourceSize);
-      new THREE.Box3().setFromObject(destinationProduct ?? destinationBay).getSize(destinationSize);
-      const uniformScale = THREE.MathUtils.clamp(
-        Math.min(
-          destinationSize.x / Math.max(0.001, sourceSize.x),
-          destinationSize.y / Math.max(0.001, sourceSize.y),
-        ),
-        0.45,
-        3.2,
-      );
+      sourceSize.copy(this.transitionObjectSize(source));
+      destinationSize.copy(this.transitionObjectSize(destinationProduct ?? destinationBay));
+      const uniformScale = stationaryMobileViewerHandoff
+        ? 1
+        : THREE.MathUtils.clamp(
+            Math.min(
+              destinationSize.x / Math.max(0.001, sourceSize.x),
+              destinationSize.y / Math.max(0.001, sourceSize.y),
+            ),
+            0.05,
+            20,
+          );
       sourceEndScale = sourceStartScale.clone().multiplyScalar(uniformScale);
       destinationBay.visible = false;
       if (destinationProduct) destinationProduct.visible = false;
     }
 
     if (this.state.mode === "category" && this.gridBays) {
-      [...this.gridBays.values()].forEach((entry, index) => {
+      [...this.gridBays.values()].forEach((entry) => {
         entry.revealProgress = 0;
-        entry.revealIndex = index;
         entry.bay.scale.setScalar(0.01);
       });
       if (this.categoryDescription) {
@@ -433,25 +638,45 @@ export class GalleryScene {
       startedAt: performance.now(),
       duration:
         introToHome
-          ? 1.65 + this.homeGalleryRevealItems.length * 0.26 + 0.9
+          ? HOME_GALLERY_REVEAL_START
+            + Math.max(0, this.homeGalleryRevealItems.length - 1) * HOME_GALLERY_REVEAL_INTERVAL
+            + HOME_GALLERY_REVEAL_DURATION
+            + 0.58
           : this.state.mode === "category"
-          ? 3.35 + Math.min(1.4, (this.gridBays?.size ?? 0) * 0.11)
+          ? gridRevealAt + Math.min(1.4, (this.isMobileLayout() ? 5 : 10) * (this.isMobileLayout() ? 0.2 : 0.11)) + 0.58
           : this.state.mode === "viewer"
-            ? 2.95
+            ? destinationRevealAt + (stationaryMobileViewerHandoff ? 0.32 : 0.72)
             : this.state.mode === "home"
-              ? 2.7
-              : 1.35,
+              ? homeRevealAt
+                + Math.max(0, (this.homeZones?.size ?? 1) - 1) * HOME_GALLERY_REVEAL_INTERVAL
+                + HOME_GALLERY_REVEAL_DURATION
+                + 0.58
+              : destinationRevealAt + 0.55,
       introToHome,
+      stationaryMobileViewerHandoff,
       logoStart: introToHome ? this.introLogoPlacement() : null,
       logoEnd: introToHome ? this.galleryLogoPlacement() : null,
       outgoing,
       outgoingItems,
+      outgoingStagger,
+      outgoingDuration,
+      sourceMoveAt,
+      sourceMoveDuration,
+      cameraMoveAt,
+      cameraMoveDuration,
+      destinationRevealAt,
+      categoryTextAt,
+      gridRevealAt,
+      homeRevealAt,
       source,
       sourceStart,
       sourceEnd,
       sourceStartScale,
       sourceEndScale,
+      sourceStartQuaternion,
+      sourceEndQuaternion,
       destinationBay,
+      destinationBayBaseScale: destinationBay?.scale.clone() ?? null,
       destinationProduct,
       destinationProductBasePosition: destinationProduct?.position.clone() ?? null,
       cameraStart: this.camera.position.clone(),
@@ -485,20 +710,20 @@ export class GalleryScene {
 
   finishTransition() {
     if (!this.transition) return;
-    const { outgoing, source, destinationBay, destinationProduct, destinationProductBasePosition, introToHome } = this.transition;
+    const { outgoing, source, destinationBay, destinationBayBaseScale, destinationProduct, destinationProductBasePosition, introToHome } = this.transition;
     if (outgoing) {
       this.transitionGroup.remove(outgoing);
       disposeObject3D(outgoing);
     }
-    if (source) {
-      this.transitionGroup.remove(source);
-      disposeObject3D(source);
-    }
+    const reusedSource = source
+      ? this.commitTransitionProduct(source, destinationProduct, this.transition.stationaryMobileViewerHandoff)
+      : false;
     if (destinationBay) {
       destinationBay.visible = true;
-      destinationBay.scale.setScalar(1);
+      if (destinationBayBaseScale) destinationBay.scale.copy(destinationBayBaseScale);
+      else destinationBay.scale.setScalar(1);
     }
-    if (destinationProduct) {
+    if (destinationProduct && !reusedSource) {
       destinationProduct.visible = true;
       if (destinationProductBasePosition) destinationProduct.position.copy(destinationProductBasePosition);
     }
@@ -534,20 +759,32 @@ export class GalleryScene {
     this.onInteractionLock?.(false);
   }
 
-	  // D55: the DOM lane plaque (hud.js .m-lane-plaque) shows the item centred in the
-	  // portrait scroll lane; index derives from the scroll offset.
+	  // D57: describe the centred item plus the visible ring neighbours so the DOM labels
+	  // can follow the same left-to-right arc as their Three.js meshes.
 	  getMobileLaneItem() {
-	    if (!this.gridLayout?.stepY || !this.categoryProducts?.length) return null;
+	    if (!this.gridLayout?.ring || !this.categoryProducts?.length) return null;
+	    const step = this.gridLayout.step;
 	    const index = Math.min(
 	      this.categoryProducts.length - 1,
-	      Math.max(0, Math.round(this.scrollOffset / this.gridLayout.stepY)),
+	      Math.max(0, Math.round(this.scrollOffset / step)),
 	    );
-	    return { item: this.categoryProducts[index], index, isSubcollection: Boolean(this.categoryShowingSubcollections) };
+	    const ring = this.categoryProducts
+	      .map((item, itemIndex) => ({ item, itemIndex, placement: this.mobileRingPosition(itemIndex) }))
+	      .filter(({ placement }) => Math.abs(placement.slot) <= this.gridLayout.visibleSlots)
+	      .map(({ item, itemIndex, placement }) => ({
+	        item,
+	        index: itemIndex,
+	        active: itemIndex === index,
+	        distance: Math.abs(placement.slot),
+	        xPercent: 50 + Math.sin(placement.angle) * 54,
+	        yPercent: (this.gridLayout.labelYPercent ?? 85.8) - Math.abs(placement.slot) * 2.7,
+	        scale: placement.scale,
+	      }));
+	    return { item: this.categoryProducts[index], index, ring, isSubcollection: Boolean(this.categoryShowingSubcollections) };
 	  }
 
 	  scrollCategoryBy(direction) {
-	    // Portrait shows a single full tile under the hero, so scroll one slot at a time.
-	    const step = this.gridLayout?.stepY ? this.gridLayout.stepY : (this.gridLayout?.stepX ?? SMALL_GRID.stepX) * 3;
+	    const step = this.gridLayout?.ring ? this.gridLayout.step : (this.gridLayout?.stepX ?? SMALL_GRID.stepX) * 3;
 	    this.scrollCategoryTo(this.scrollOffset + direction * step);
 	  }
 
@@ -558,7 +795,14 @@ export class GalleryScene {
 	    this.scrollOffset = nextOffset;
 	    this.applyGridTrackPosition();
 	    this.updateCategoryGrid();
+	    if (this.gridLayout?.ring) this.onMobileLaneChange?.(this.getMobileLaneItem());
 	  }
+
+  snapCategoryRing() {
+    if (!this.gridLayout?.ring) return;
+    const step = this.gridLayout.step;
+    this.scrollCategoryTo(Math.round(this.scrollOffset / step) * step);
+  }
 
   prepareCategory(categoryId, subcollectionId = null) {
     const cacheKey = `${categoryId}:${subcollectionId ?? "all"}`;
@@ -677,13 +921,7 @@ export class GalleryScene {
       bayInner: new THREE.MeshStandardMaterial({ color: 0xcecdc9, roughness: 0.85 }),
       // BA_MAT_ASH_WOOD_DARKGREY: grey grain ramp 0.055 -> 0.145 (#424242 -> #6a6a6a) baked into texture.
       blackAsh: new THREE.MeshStandardMaterial({ map: ashTexture, roughness: 0.62, metalness: 0 }),
-      black: new THREE.MeshStandardMaterial({ color: 0x050403, roughness: 0.58, metalness: 0.06 }),
-      // D50 web floor: black-and-gold marble slabs, generated procedurally so no new asset is needed.
-      floor: new THREE.MeshStandardMaterial({
-        map: this.createFloorTexture(),
-        roughness: 0.28,
-        metalness: 0.18,
-      }),
+      black: new THREE.MeshStandardMaterial({ color: ABSOLUTE_PRODUCT_BLACK, roughness: 0.92, metalness: 0 }),
       // BA_RR_warm_gold_emission: emission (1, 0.62, 0.28) x4 -> #ffce90.
       goldLight: new THREE.MeshStandardMaterial({ color: 0xffce90, emissive: 0xffce90, emissiveIntensity: 2.4, roughness: 0.34 }),
       hit: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
@@ -700,122 +938,30 @@ export class GalleryScene {
   }
 
   createArchitecture() {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(18, 3.6, 0.16), this.materials.wall);
-    wall.position.set(2.6, 1.8, -0.08);
+    // D64: the wall is the complete web backdrop. It extends below every camera frustum so
+    // removing the floor never exposes a horizon strip or the scene background on phones.
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(18, 9.2, 0.16), this.materials.wall);
+    wall.position.set(2.6, 2.6, -0.08);
     wall.receiveShadow = true;
+    this.wallMesh = wall;
     this.architecture.add(wall);
-
-    const header = new THREE.Mesh(new THREE.BoxGeometry(18.3, 0.52, 0.86), this.materials.black);
-    header.position.set(2.45, 3.92, 0.32);
-    header.castShadow = true;
-    this.architecture.add(header);
-
-    const cove = new THREE.Mesh(new THREE.BoxGeometry(17.7, 0.055, 0.04), this.materials.goldLight);
-    cove.position.set(2.75, 3.43, 0.02);
-    this.architecture.add(cove);
-
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(17.25, 0.06, 0.06), this.materials.black);
-    rail.position.set(2.975, 3.3, 0.42);
-    this.architecture.add(rail);
-
-    TRACK_STEM_X.forEach((x) => {
-      const stem = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.36, 0.025), this.materials.black);
-      stem.position.set(x, 3.48, 0.42);
-      this.architecture.add(stem);
-    });
-
-    // FULLY LIT ROOM (D41): no spotlights at all — no fixture meshes, no spot lights,
-    // no wall scallops. Even, bright gallery light from ambient + area fills + cove.
-    // Rail + stems stay as architecture; bay strips/pucks/underlights are bay furniture.
-
-    // Whisper of shade at the very top/bottom so the wall still has depth.
-    const shade = new THREE.Mesh(new THREE.PlaneGeometry(18, 3.6), this.createWallShadeMaterial());
-    shade.position.set(2.6, 1.8, 0.004);
-    this.architecture.add(shade);
-
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(17.7, 0.09, 6.2), this.materials.floor);
-    floor.position.set(2.75, -0.045, 3.1);
-    floor.receiveShadow = true;
-    this.architecture.add(floor);
-
-    const skirtingTop = new THREE.Mesh(new THREE.BoxGeometry(18, 0.16, 0.08), this.materials.black);
-    skirtingTop.position.set(2.6, 0.22, 0.06);
-    const skirtingBottom = new THREE.Mesh(new THREE.BoxGeometry(18, 0.09, 0.09), this.materials.black);
-    skirtingBottom.position.set(2.6, 0.065, 0.07);
-    this.architecture.add(skirtingTop, skirtingBottom);
-
-    for (let i = 0; i < 10; i += 1) {
-      const seam = new THREE.Mesh(new THREE.BoxGeometry(17.4, 0.004, 0.012), this.materials.black);
-      seam.position.set(2.6, 0.006, 0.55 + i * 0.52);
-      this.architecture.add(seam);
-    }
   }
 
-  createSharedAtmosphere() {
-    const wallTone = new THREE.Mesh(
-      new THREE.PlaneGeometry(18, 3.6),
-      new THREE.MeshBasicMaterial({ map: this.createHomeWallFinishTexture(), transparent: true, opacity: 0.34, depthWrite: false }),
-    );
-    wallTone.position.set(2.6, 1.8, 0.002);
-    wallTone.userData.excludeFromTransition = true;
-    this.atmosphereGroup.add(wallTone);
-
-    this.atmosphereFixtures = [];
-    [-4.2, -2.8, -1.35, 0.05, 1.5, 2.9, 4.05].forEach((x) => {
-      const fixture = this.createHomeFixture(x);
-      const pool = this.createWallLightPool(x, 2.15, 1.45, 2.75, 0.16);
-      const key = this.createHomeKeyLight(x);
-      fixture.userData.excludeFromTransition = true;
-      pool.userData.excludeFromTransition = true;
-      key.userData.excludeFromTransition = true;
-      this.atmosphereFixtures.push(fixture);
-      this.atmosphereGroup.add(fixture, pool, key);
-    });
-  }
-
-  // D55 mobile stage: portrait hides the gallery architecture entirely and floats products
-  // over a charcoal studio backdrop; all text becomes DOM UI (see hud.js .mobile-stage).
+  // D57 mobile lighting rig. The shared wall remains visible; this group only adds
+  // camera-facing key/fill/rim light so dark SVG/STL products stay readable in portrait.
   createMobileStage() {
     this.mobileStage = new THREE.Group();
     this.mobileStage.visible = false;
     this.mobileStage.userData.excludeFromTransition = true;
 
-    const canvas = document.createElement("canvas");
-    canvas.width = 512;
-    canvas.height = 1024;
-    const ctx = canvas.getContext("2d");
-    const base = ctx.createLinearGradient(0, 0, 0, 1024);
-    base.addColorStop(0, "#26231f");
-    base.addColorStop(0.55, "#1d1a18");
-    base.addColorStop(1, "#141211");
-    ctx.fillStyle = base;
-    ctx.fillRect(0, 0, 512, 1024);
-    // Soft warm pool behind the product zone so pieces separate from the charcoal.
-    const glow = ctx.createRadialGradient(256, 400, 40, 256, 400, 460);
-    glow.addColorStop(0, "rgba(90, 76, 58, 0.55)");
-    glow.addColorStop(1, "rgba(90, 76, 58, 0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, 512, 1024);
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-
-    const backdrop = new THREE.Mesh(
-      new THREE.PlaneGeometry(16, 16),
-      new THREE.MeshBasicMaterial({ map: texture, depthWrite: false }),
-    );
-    backdrop.position.set(0, 1.6, -1.6);
-    backdrop.userData.excludeFromTransition = true;
-    this.mobileStage.add(backdrop);
-
-    // Stage lighting: the gallery's warm pools/keys live in the hidden atmosphere group,
-    // and dark pieces (bronze SVGs, black STLs) vanish on charcoal without their own key.
-    // These lights toggle with the group, so desktop is untouched.
-    const stageAmbient = new THREE.AmbientLight(0xfff3e0, 0.7);
-    const stageKey = new THREE.DirectionalLight(0xfff1dc, 1.45);
-    stageKey.position.set(2, 6, 9);
-    const stageFill = new THREE.DirectionalLight(0xe8d9c2, 0.55);
-    stageFill.position.set(-6, 2, 7);
-    this.mobileStage.add(stageAmbient, stageKey, stageFill);
+    const stageAmbient = new THREE.HemisphereLight(0xfff0d8, 0x3a281d, 0.82);
+    const stageKey = new THREE.DirectionalLight(0xffead0, 2.35);
+    stageKey.position.set(3.5, 6.5, 8.5);
+    const stageFill = new THREE.DirectionalLight(0xffd7ae, 1.05);
+    stageFill.position.set(-5.5, 2.6, 6.5);
+    const stageRim = new THREE.DirectionalLight(0xffbd70, 0.78);
+    stageRim.position.set(4.5, 4.2, -1.5);
+    this.mobileStage.add(stageAmbient, stageKey, stageFill, stageRim);
     this.scene.add(this.mobileStage);
   }
 
@@ -854,7 +1000,7 @@ export class GalleryScene {
 
   setIntroLayout() {
     if (!this.wallLogo || !this.introCopy) return;
-    const portrait = this.camera.aspect < 0.78;
+    const portrait = this.isMobileLayout();
     if (portrait) {
       // D55: portrait intro is fully DOM (logo image + copy in hud.js .m-intro);
       // the 3D copy and wall logo stay hidden so nothing fights the charcoal stage.
@@ -887,7 +1033,7 @@ export class GalleryScene {
   }
 
   introLogoPlacement() {
-    if (this.camera.aspect < 0.78) {
+    if (this.isMobileLayout()) {
       // Smaller and lower than before: keeps the full circle inside the 9:16 frame
       // (visible top ≈ 3.21 at look-y 1.5) and clear of the HUD chip row.
       return {
@@ -906,7 +1052,7 @@ export class GalleryScene {
   }
 
   galleryLogoPlacement() {
-    if (this.camera.aspect < 0.78) {
+    if (this.isMobileLayout()) {
       // Portrait Gallery View has no room for the wall logo (the DOM BA chip covers branding);
       // the intro→home transition shrinks it away instead of parking it behind the sections.
       return {
@@ -973,6 +1119,11 @@ export class GalleryScene {
     shelf.position.set(0, 0.05, 0.42);
     shelf.castShadow = true;
     objects.add(shelf);
+	    this.homeZones.get("3d-objects")?.revealDecor.push({
+	      object: shelf,
+	      baseScale: shelf.scale.clone(),
+	      basePosition: shelf.position.clone(),
+	    });
 	    const panther = this.addHomeProduct(objects, "object-panther", { width: 0.92, height: 0.64, big: true, homeDark: true }, 0, 0.64, 0.76, true, 2.75);
 	    panther.rotation.y = Math.PI / 2;
 
@@ -992,7 +1143,7 @@ export class GalleryScene {
 	    zone.add(hit);
 	    this.homeClickTargets.push(hit);
 	    this.homeBays.set(categoryId, zone);
-	    this.homeZones.set(categoryId, { group: zone, hit, products: [], layoutScale: 1 });
+	    this.homeZones.set(categoryId, { group: zone, hit, products: [], revealDecor: [], layoutScale: 1 });
 	    this.homeGroup.add(zone);
 	    return zone;
 	  }
@@ -1000,18 +1151,19 @@ export class GalleryScene {
   applyHomeLayout() {
     if (!this.homeZones) return;
     const mobile = this.isMobileLayout();
-    // Portrait Gallery View (ref 02): four vertical sections on the logo wall slot (x −4),
-    // one hero per section with a small category label above it, floor strip at the bottom.
+    // D67 portrait Gallery View: four vertical sections alternate right / left / right / left
+    // around the camera axis. One hero per section keeps the path legible on a narrow phone.
     // Zone y compensates each hero's local offset so hero centres land evenly spaced.
-    // Hero centres land at 25.25 / 46.25 / 67.25 / 88.25% of the 9:16 frame so each sits
-    // inside its DOM header band (headers at 12/33/54/75% — see .m-home-labels in styles.css).
+    // Hero centres land at 25.25 / 46.25 / 67.25 / 88.25% of the 9:16 frame. The matching
+    // DOM label shares that vertical centre but sits across the camera axis on the open side.
     const mobilePlacement = {
-      "wall-art": { x: -4, y: 2.23, scale: 0.285 },
-      "digital-art": { x: -4, y: 1.54, scale: 0.315 },
-      "layered-art": { x: -4, y: 0.9, scale: 0.3 },
+      "wall-art": { x: -3.68, y: 2.23, scale: 0.285 },
+      "digital-art": { x: -4.3, y: 1.54, scale: 0.315 },
+      "layered-art": { x: -3.68, y: 0.9, scale: 0.3 },
       // The panther block sits ~0.4 in front of the wall plane, so perspective drops it
-      // lower/bigger than wall-plane math — placed empirically to centre at ~88%.
-      "3d-objects": { x: -4, y: 0.1, scale: 0.5 },
+      // lower/bigger than wall-plane math. Pulling it left and downscaling it protects the
+      // right-side label lane while retaining its intentionally heavier silhouette.
+      "3d-objects": { x: -4.28, y: 0.1, scale: 0.36 },
     };
     this.homeZones.forEach((entry, categoryId) => {
       const placement = mobilePlacement[categoryId];
@@ -1023,6 +1175,10 @@ export class GalleryScene {
       // Portrait sections show only the hero piece — the desktop side clusters would
       // shrink into unreadable clutter at section scale.
       entry.products.forEach((item) => {
+        if (item.object.userData?.transitionAnchor || item.object.parent !== entry.group) {
+          item.object.visible = false;
+          return;
+        }
         item.object.visible = !mobile || Boolean(item.object.userData.transitionProduct);
       });
     });
@@ -1052,21 +1208,31 @@ export class GalleryScene {
     order.forEach((categoryId) => {
       const zone = this.homeZones.get(categoryId);
 	      if (!zone) return;
-	      zone.revealProgress = 1;
-	      zone.group.visible = true;
+	      zone.revealProgress = 0;
+	      zone.group.visible = false;
+	      // Keep the section at its final wall transform. Scaling the entire zone made products
+	      // with large local offsets (especially Wall Art and 3D Objects) travel across the screen.
 	      zone.group.scale.setScalar(zone.layoutScale ?? 1);
       zone.products.forEach((item) => {
+        if (item.object.userData?.transitionAnchor || item.object.parent !== zone.group) {
+          item.object.visible = false;
+          return;
+        }
         // Portrait sections only ever show/reveal the hero piece.
         if (mobile && !item.object.userData.transitionProduct) {
           item.object.visible = false;
           return;
         }
-        item.object.visible = false;
+        item.object.visible = !mobile || Boolean(item.object.userData.transitionProduct);
         item.object.position.copy(item.basePosition);
-        item.object.position.z += PRODUCT_LATCH_DISTANCE;
-        item.object.scale.setScalar(0.001);
-        this.homeGalleryRevealItems.push(item);
+        item.object.scale.copy(item.baseScale).multiplyScalar(0.001);
       });
+      zone.revealDecor?.forEach((item) => {
+        item.object.position.copy(item.basePosition);
+        item.object.scale.copy(item.baseScale).multiplyScalar(0.001);
+      });
+      // Reveal the complete section as a unit so shelves and lights cannot precede the piece.
+      this.homeGalleryRevealItems.push(zone);
     });
   }
 
@@ -1077,7 +1243,15 @@ export class GalleryScene {
 	      entry.group.visible = true;
 	      entry.group.scale.setScalar(entry.layoutScale ?? 1);
       entry.products.forEach((item) => {
+        if (item.object.userData?.transitionAnchor || item.object.parent !== entry.group) {
+          item.object.visible = false;
+          return;
+        }
         item.object.visible = !mobile || Boolean(item.object.userData.transitionProduct);
+        item.object.position.copy(item.basePosition);
+        item.object.scale.copy(item.baseScale);
+      });
+      entry.revealDecor?.forEach((item) => {
         item.object.position.copy(item.basePosition);
         item.object.scale.copy(item.baseScale);
       });
@@ -1087,28 +1261,6 @@ export class GalleryScene {
   resetHomeGalleryReveal() {
     this.completeHomeGalleryReveal();
     this.homeGalleryRevealItems = [];
-  }
-
-  createHomeFixture(x) {
-    const fixture = new THREE.Group();
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.28, 10), this.materials.black);
-    stem.position.y = -0.13;
-    const head = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.06, 0.15, 16), this.materials.black);
-    head.position.y = -0.31;
-    fixture.position.set(x, 3.31, 0.43);
-    fixture.add(stem, head);
-    return fixture;
-  }
-
-  createHomeKeyLight(x) {
-    const rig = new THREE.Group();
-    const target = new THREE.Object3D();
-    target.position.set(x, 1.55, 0);
-    const light = new THREE.SpotLight(0xffc47f, 3.5, 5.5, 0.34, 0.9, 1.4);
-    light.position.set(x, 3.18, 1.12);
-    light.target = target;
-    rig.add(light, target);
-    return rig;
   }
 
   createWallMount({ x, y, width, height, label, labelSize = 0.11, labelDepth = 0.03, labelOffset = 0.13, labelPlacement = "below" }) {
@@ -1182,6 +1334,10 @@ export class GalleryScene {
   }
 
   buildCategory(category, activeProduct) {
+    window.clearTimeout(this.gridBuildTimer);
+    this.gridBuildTimer = null;
+    this.gridBuildScheduled = false;
+    this.gridRevealCounter = 0;
     if (this.gridBays) {
       this.gridBays.forEach((entry) => disposeObject3D(entry.bay));
     }
@@ -1195,8 +1351,9 @@ export class GalleryScene {
 	    const lead = activeSubcollection ? activeProduct ?? getSubcollectionHeroProduct(category, activeSubcollection.id) : activeProduct ?? getHeroProduct(category);
 	    const viewCopy = activeSubcollection ?? category;
 	    const mobile = this.isMobileLayout();
+	    const mobileProductArray = mobile && !showingSubcollections;
 
-	    this.categoryGroup.add(this.createWallLightPool(mobile ? 0.9 : -4.78, mobile ? 2.1 : 2.12, mobile ? 2.0 : 2.42, mobile ? 1.8 : 1.9, 0.16));
+	    this.categoryGroup.add(this.createWallLightPool(mobile ? 0.9 : -4.78, mobileProductArray ? 1.62 : mobile ? 2.1 : 2.12, mobileProductArray ? 2.35 : mobile ? 2.0 : 2.42, mobileProductArray ? 2.25 : mobile ? 1.8 : 1.9, 0.16));
 	    // D55: portrait titles/plaques are DOM UI (hud.js .m-category); the 3D description
 	    // panel and extruded labels are desktop-only.
 	    if (!mobile) {
@@ -1208,7 +1365,11 @@ export class GalleryScene {
 	      this.categoryDescription = null;
 	    }
 
-	    const bigBay = this.createWallMount({
+	    let bigBay = null;
+	    let bigProduct = null;
+	    let bigHit = null;
+	    if (!mobileProductArray) {
+	      bigBay = this.createWallMount({
 	      x: mobile ? 0.9 : -2.55,
 	      y: mobile ? 2.05 : 1.735,
 	      width: mobile ? 1.4 : 2.12,
@@ -1218,23 +1379,24 @@ export class GalleryScene {
 	      labelDepth: 0.04,
 	      labelOffset: 0.11,
 	    });
-	    const isObjectCategory = category.id === "3d-objects";
-	    const bigProduct = this.createProductDisplay(lead, { width: mobile ? 1.0 : 1.64, height: mobile ? 1.18 : 1.92, big: true });
+	      const isObjectCategory = category.id === "3d-objects";
+	      bigProduct = this.createProductDisplay(lead, { width: mobile ? 1.0 : 1.64, height: mobile ? 1.18 : 1.92, big: true });
 	    bigProduct.userData.transitionProduct = true;
 	    bigProduct.position.set(0, isObjectCategory ? 0.1 : 0, (isObjectCategory ? (mobile ? 0.46 : 0.52) : 0.105) + PRODUCT_WALL_CLEARANCE);
 	    if (isObjectCategory) {
 	      bigBay.add(this.createFloatingShelf({ width: mobile ? 1.18 : 1.82, depth: mobile ? 0.58 : 0.72, thickness: 0.09, y: mobile ? -0.24 : -0.3, z: 0.42 }));
 	    }
-    bigBay.add(bigProduct);
-    const bigHit = new THREE.Mesh(new THREE.BoxGeometry(2.35, 2.75, 0.5), this.materials.hit);
+      bigBay.add(bigProduct);
+      bigHit = new THREE.Mesh(new THREE.BoxGeometry(2.35, 2.75, 0.5), this.materials.hit);
     bigHit.position.set(0, 0, 0.28);
     bigHit.userData = { action: "product", productId: lead.id };
     bigBay.add(bigHit);
-    this.clickable.push(bigHit);
-    this.categoryBigBay = bigBay;
+	      this.clickable.push(bigHit);
+	      this.categoryGroup.add(bigBay);
+	      this.categoryGroup.add(this.createWallLightPool(mobile ? 0.9 : -2.55, mobile ? 2.05 : 1.86, mobile ? 1.6 : 2.28, mobile ? 1.7 : 2.65, 0.16));
+	    }
+	    this.categoryBigBay = bigBay;
 	    this.categoryBigProduct = bigProduct;
-	    this.categoryGroup.add(bigBay);
-	    this.categoryGroup.add(this.createWallLightPool(mobile ? 0.9 : -2.55, mobile ? 2.05 : 1.86, mobile ? 1.6 : 2.28, mobile ? 1.7 : 2.65, 0.16));
 	    if (!mobile) {
 	      this.categoryGroup.add(this.createRowWash(new THREE.Vector3(5.0, 3.1, 1.4), new THREE.Vector3(5.0, 2.35, 0.04), 2.2));
 	      this.categoryGroup.add(this.createRowWash(new THREE.Vector3(5.0, 1.9, 1.6), new THREE.Vector3(5.0, 1.0, 0.04), 1.8));
@@ -1246,7 +1408,7 @@ export class GalleryScene {
     this.categoryProducts = products;
     this.categoryShowingSubcollections = showingSubcollections;
 	    this.gridLayout = mobile
-	      ? MOBILE_GRID
+	      ? (showingSubcollections ? MOBILE_COLLECTION_RING : MOBILE_PRODUCT_RING)
 	      : !showingSubcollections && products.length <= 6
 	        ? { startX: -0.18, stepX: 1.05, rowY: [2.46, 1.02] }
 	        : SMALL_GRID;
@@ -1255,26 +1417,51 @@ export class GalleryScene {
     this.gridHitEntries = [];
     this.gridHittables = [];
     this.pendingGridBuilds.clear();
+	    const activeIndex = products.findIndex((item) => {
+	      const itemProduct = showingSubcollections
+	        ? getSubcollectionHeroProduct(category, item.id)
+	        : item;
+	      return itemProduct.id === this.state.activeProductId;
+	    });
+	    if (mobile && activeIndex >= 0) this.scrollOffset = activeIndex * this.gridLayout.step;
 	    this.maxScroll = mobile
-	      ? Math.max(0, (products.length - 1) * this.gridLayout.stepY)
+	      ? Math.max(0, (products.length - 1) * this.gridLayout.step)
 	      : Math.max(0, (Math.ceil(products.length / 2) - 4) * this.gridLayout.stepX);
     // Windowed virtualization: only the product bays near the scroll window are built (see
     // updateCategoryGrid). With 148 Wall Art products, eagerly building every bay (a fetch + SVG
     // extrude each) was the load cost — now ~9 columns are live at a time.
+    // Build the selected mobile ring item synchronously. It is the transition destination, so
+    // the exact source mesh can land immediately while its neighbours stream in one at a time.
+    if (mobileProductArray && activeIndex >= 0) {
+      const entry = this.buildGridBay(products[activeIndex], activeIndex);
+      const visible = this.visibleGridPosition(activeIndex);
+      entry.edgeScale = visible.scale;
+      entry.bay.position.set(visible.x, visible.y, visible.z);
+      entry.bay.rotation.y = visible.rotationY;
+      entry.targetPosition = entry.bay.position.clone();
+      entry.targetRotationY = visible.rotationY;
+      entry.revealProgress = 0;
+      entry.revealIndex = this.gridRevealCounter++;
+      this.gridBays.set(activeIndex, entry);
+      this.categoryBigBay = entry.bay;
+      this.categoryBigProduct = entry.productDisplay;
+    }
 	    this.applyGridTrackPosition();
     this.updateCategoryGrid();
+    if (mobile) this.onMobileLaneChange?.(this.getMobileLaneItem());
   }
 
 	  // Build one wall-mounted product group (extruded SVG / poster / STL) and return its group + hit mesh.
 	  buildGridBay(item, index) {
 	    const { x, y } = this.gridPositionForIndex(index);
 	    const mobile = this.isMobileLayout();
+	    const mobileLayout = mobile && this.gridLayout?.ring ? this.gridLayout : null;
 	    const product = this.categoryShowingSubcollections ? getSubcollectionHeroProduct(getCategory(this.state.activeCategoryId), item.id) : item;
 	    const bay = this.createWallMount({
 	      x,
 	      y,
-	      width: mobile ? 0.98 : 0.9,
-	      height: mobile ? 1.04 : 0.98,
+	      width: mobileLayout?.mountWidth ?? 0.9,
+	      height: mobileLayout?.mountHeight ?? 0.98,
 	      // D55: portrait tile names render as the DOM lane plaque, not 3D text.
 	      label: mobile ? null : (this.categoryShowingSubcollections ? item.label : product.name).toUpperCase(),
 	      labelSize: 0.07,
@@ -1285,15 +1472,15 @@ export class GalleryScene {
     // restY: shelf top in display space — shelf centre y 0.08 + half thickness 0.0325, minus the
     // display group's own y offset (0.08). Keeps STLs standing ON the slab, not through it.
 	    const display = this.createProductDisplay(product, {
-	      width: isObjectProduct ? (mobile ? 0.6 : 0.62) : mobile ? 0.7 : 0.58,
-	      height: isObjectProduct ? (mobile ? 0.56 : 0.58) : mobile ? 0.78 : 0.68,
+	      width: isObjectProduct ? (mobileLayout?.objectDisplayWidth ?? 0.62) : (mobileLayout?.flatDisplayWidth ?? 0.58),
+	      height: isObjectProduct ? (mobileLayout?.objectDisplayHeight ?? 0.58) : (mobileLayout?.flatDisplayHeight ?? 0.68),
 	      big: false,
 	      ...(isObjectProduct ? { restY: 0.0325 } : {}),
 	    });
     display.userData.transitionProduct = true;
     display.position.set(0, isObjectProduct ? 0.08 : 0, (isObjectProduct ? 0.44 : 0.105) + PRODUCT_WALL_CLEARANCE);
     if (isObjectProduct) {
-	      bay.add(this.createFloatingShelf({ width: mobile ? 0.68 : 0.76, depth: mobile ? 0.46 : 0.5, thickness: 0.065, y: 0.08, z: 0.32 }));
+	      bay.add(this.createFloatingShelf({ width: mobileLayout?.productArray ? 1.08 : mobile ? 0.68 : 0.76, depth: mobileLayout?.productArray ? 0.58 : mobile ? 0.46 : 0.5, thickness: mobileLayout?.productArray ? 0.075 : 0.065, y: 0.08, z: 0.32 }));
     }
     bay.add(display);
     bay.add(this.createWallLightPool(0, 0.16, 0.88, 1.1, 0.12));
@@ -1307,7 +1494,7 @@ export class GalleryScene {
       count.position.set(0, -0.34, 0.045);
       bay.add(count);
     }
-    const hit = new THREE.Mesh(new THREE.BoxGeometry(1.02, 1.28, 0.46), this.materials.hit);
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(mobileLayout?.mountWidth ?? 1.02, mobileLayout?.mountHeight ?? 1.28, 0.46), this.materials.hit);
     hit.position.set(0, 0, isObjectProduct ? 0.38 : 0.28);
     hit.userData = this.categoryShowingSubcollections ? { action: "subcollection", subcollectionId: item.id } : { action: "product", productId: product.id };
     bay.add(hit);
@@ -1327,27 +1514,41 @@ export class GalleryScene {
 
   gridPositionForIndex(index) {
     const layout = this.gridLayout ?? SMALL_GRID;
-    if (layout.stepY) {
-      return { x: layout.x, y: layout.startY - index * layout.stepY };
-    }
+    if (layout.ring) return { x: layout.centerX, y: layout.centerY };
     const row = index % 2;
     const col = Math.floor(index / 2);
     return { x: layout.startX + col * layout.stepX, y: layout.rowY[row] };
   }
 
+  mobileRingPosition(index) {
+    const layout = this.gridLayout?.ring ? this.gridLayout : MOBILE_COLLECTION_RING;
+    const slot = index - this.scrollOffset / layout.step;
+    const angle = slot * layout.angleStep;
+    const distance = Math.abs(slot);
+    return {
+      slot,
+      angle,
+      x: layout.centerX + Math.sin(angle) * layout.radiusX,
+      y: layout.centerY + Math.min(distance, layout.visibleSlots) * 0.08,
+      z: 0.18 - (1 - Math.cos(angle)) * layout.radiusZ,
+      rotationY: -angle * 0.42,
+      scale: THREE.MathUtils.clamp(
+        1 - distance * (layout.scaleFalloff ?? 0.2),
+        layout.minScale ?? 0.42,
+        1,
+      ),
+    };
+  }
+
   visibleGridPosition(index) {
+    if (this.gridLayout?.ring) return this.mobileRingPosition(index);
     const position = this.gridPositionForIndex(index);
-    if (this.gridLayout?.stepY) return { x: position.x, y: position.y + this.scrollOffset };
     return { x: position.x - this.scrollOffset, y: position.y };
   }
 
   applyGridTrackPosition() {
     if (!this.gridTrack) return;
-    if (this.gridLayout?.stepY) {
-      this.gridTrack.position.set(0, this.scrollOffset, 0);
-    } else {
-      this.gridTrack.position.set(-this.scrollOffset, 0, 0);
-    }
+    this.gridTrack.position.set(this.gridLayout?.ring ? 0 : -this.scrollOffset, 0, 0);
   }
 
   // Dispose a grid bay's per-mesh geometry (the heavy extruded SVG) and its NON-shared materials.
@@ -1368,14 +1569,12 @@ export class GalleryScene {
 	  updateCategoryGrid() {
 	    if (this.state?.mode !== "category" || !this.categoryProducts || !this.gridBays) return;
 	    this.applyGridTrackPosition();
-	    const mobile = Boolean(this.gridLayout?.stepY);
-	    const rightEdge = this.camera.aspect < 0.78 ? 4.6 : 8.9;
-	    const topEdge = this.gridLayout?.visibleTop ?? 2.18;
-	    const bottomEdge = this.gridLayout?.visibleBottom ?? -1.18;
+	    const mobile = Boolean(this.gridLayout?.ring);
+	    const rightEdge = this.isMobileLayout() ? 4.6 : 8.9;
 	    this.categoryProducts.forEach((item, index) => {
 	      const visible = this.visibleGridPosition(index);
 	      const near = mobile
-	        ? visible.y >= bottomEdge - this.gridLayout.stepY && visible.y <= topEdge + this.gridLayout.stepY
+	        ? Math.abs(visible.slot) <= this.gridLayout.visibleSlots + 0.8
 	        : visible.x >= HERO_GRID_VANISH_X - GRID_EDGE_SCALE_DISTANCE && visible.x <= rightEdge + GRID_EDGE_SCALE_DISTANCE;
 	      if (near) {
 	        if (!this.gridBays.has(index)) {
@@ -1383,7 +1582,11 @@ export class GalleryScene {
 	          return;
 	        }
 	        const entry = this.gridBays.get(index);
-	        entry.edgeScale = mobile ? gridEdgeScaleY(visible.y, topEdge, bottomEdge, this.gridLayout?.edgeFade) : gridEdgeScale(visible.x, rightEdge);
+	        entry.edgeScale = mobile ? visible.scale : gridEdgeScale(visible.x, rightEdge);
+	        if (mobile) {
+	          entry.targetPosition = new THREE.Vector3(visible.x, visible.y, visible.z);
+	          entry.targetRotationY = visible.rotationY;
+	        }
 	        entry.hit.visible = entry.edgeScale > 0.45;
 	      } else {
         this.pendingGridBuilds.delete(index);
@@ -1406,10 +1609,16 @@ export class GalleryScene {
   scheduleGridBuildDrain() {
     if (this.gridBuildScheduled) return;
     this.gridBuildScheduled = true;
-    requestAnimationFrame(() => {
-      this.gridBuildScheduled = false;
-      this.buildNextQueuedGridBay();
-    });
+    const drain = () => requestAnimationFrame(() => {
+        this.gridBuildScheduled = false;
+        this.gridBuildTimer = null;
+        this.buildNextQueuedGridBay();
+      });
+    if (this.isMobileLayout()) {
+      this.gridBuildTimer = window.setTimeout(drain, 120);
+    } else {
+      drain();
+    }
   }
 
 	  buildNextQueuedGridBay() {
@@ -1417,21 +1626,26 @@ export class GalleryScene {
       this.pendingGridBuilds.clear();
       return;
     }
-	    const mobile = Boolean(this.gridLayout?.stepY);
-	    const rightEdge = this.camera.aspect < 0.78 ? 4.6 : 8.9;
-	    const topEdge = this.gridLayout?.visibleTop ?? 2.18;
-	    const bottomEdge = this.gridLayout?.visibleBottom ?? -1.18;
+	    const mobile = Boolean(this.gridLayout?.ring);
+	    const rightEdge = this.isMobileLayout() ? 4.6 : 8.9;
 	    for (const [index, queued] of this.pendingGridBuilds) {
 	      this.pendingGridBuilds.delete(index);
 	      const visible = this.visibleGridPosition(index);
 	      const near = mobile
-	        ? visible.y >= bottomEdge - this.gridLayout.stepY && visible.y <= topEdge + this.gridLayout.stepY
+	        ? Math.abs(visible.slot) <= this.gridLayout.visibleSlots + 0.8
 	        : visible.x >= HERO_GRID_VANISH_X - GRID_EDGE_SCALE_DISTANCE && visible.x <= rightEdge + GRID_EDGE_SCALE_DISTANCE;
 	      if (!near || this.gridBays.has(index)) continue;
 
 	      const entry = this.buildGridBay(queued.item, index);
-	      entry.edgeScale = mobile ? gridEdgeScaleY(visible.y, topEdge, bottomEdge, this.gridLayout?.edgeFade) : gridEdgeScale(visible.x, rightEdge);
+	      entry.edgeScale = mobile ? visible.scale : gridEdgeScale(visible.x, rightEdge);
+      if (mobile) {
+        entry.bay.position.set(visible.x, visible.y, visible.z);
+        entry.bay.rotation.y = visible.rotationY;
+        entry.targetPosition = entry.bay.position.clone();
+        entry.targetRotationY = visible.rotationY;
+      }
       entry.revealProgress = 0;
+      entry.revealIndex = this.gridRevealCounter++;
       entry.bay.scale.setScalar(Math.max(0.01, entry.edgeScale * 0.01));
       entry.hit.visible = entry.edgeScale > 0.45;
       this.gridBays.set(index, entry);
@@ -1445,7 +1659,7 @@ export class GalleryScene {
     const entries = [...this.gridBays.values()];
     this.gridHitEntries = entries.filter((entry) => entry.edgeScale > 0.62);
     this.gridHittables = this.gridHitEntries.map((entry) => entry.hit);
-    this.clickable = [this.bigHit, ...entries.map((entry) => entry.hit)];
+    this.clickable = [this.bigHit, ...entries.map((entry) => entry.hit)].filter(Boolean);
   }
 
 	  buildViewer(category, product) {
@@ -1456,10 +1670,10 @@ export class GalleryScene {
 	    // 3D wall label is skipped — the sheet already carries the name (the old label at
 	    // bay-top clipped above the wall into the roof band).
 	    const bay = this.createWallMount({
-	      x: 0,
-	      y: mobile ? 2.5 : 1.735,
-	      width: mobile ? 1.5 : 2.32,
-	      height: mobile ? 1.6 : 2.45,
+	      x: mobile ? MOBILE_PRODUCT_RING.centerX : 0,
+	      y: mobile ? MOBILE_PRODUCT_RING.centerY : 1.735,
+	      width: mobile ? MOBILE_PRODUCT_RING.mountWidth : 2.32,
+	      height: mobile ? MOBILE_PRODUCT_RING.mountHeight : 2.45,
 	      label: mobile ? null : product.name.toUpperCase(),
 	      labelSize: 0.12,
 	      labelDepth: 0.042,
@@ -1467,25 +1681,56 @@ export class GalleryScene {
 	      labelPlacement: "above",
 	    });
 	    const isObjectProduct = product.kind === "object";
-	    const display = this.createProductDisplay(product, { width: mobile ? 1.18 : 1.72, height: mobile ? 1.32 : 1.96, big: true });
+	    // Match the active product-ring footprint exactly. The reused source therefore needs no
+	    // landing refit, scale change, or screen-space correction when viewer controls open.
+	    const viewerBounds = mobile
+	      ? {
+	          width: isObjectProduct ? MOBILE_PRODUCT_RING.objectDisplayWidth : MOBILE_PRODUCT_RING.flatDisplayWidth,
+	          height: isObjectProduct ? MOBILE_PRODUCT_RING.objectDisplayHeight : MOBILE_PRODUCT_RING.flatDisplayHeight,
+	          big: false,
+	          ...(isObjectProduct ? { restY: 0.0325 } : {}),
+	        }
+	      : { width: 1.72, height: 1.96, big: true };
+	    const display = this.createProductDisplay(product, viewerBounds);
 	    display.userData.transitionProduct = true;
-	    display.position.set(0, isObjectProduct ? 0.12 : 0, (isObjectProduct ? (mobile ? 0.52 : 0.62) : 0.48) + VIEWER_WALL_CLEARANCE);
+	    display.position.set(
+	      0,
+	      isObjectProduct ? (mobile ? 0.08 : 0.12) : 0,
+	      mobile
+	        ? (isObjectProduct ? 0.44 : 0.105) + PRODUCT_WALL_CLEARANCE
+	        : (isObjectProduct ? 0.62 : 0.48) + VIEWER_WALL_CLEARANCE,
+	    );
 	    display.userData.viewerProduct = true;
 	    if (isObjectProduct) {
-	      bay.add(this.createFloatingShelf({ width: mobile ? 1.38 : 1.9, depth: mobile ? 0.62 : 0.78, thickness: 0.09, y: mobile ? -0.26 : -0.3, z: 0.43 }));
+	      bay.add(this.createFloatingShelf({
+	        width: mobile ? 1.08 : 1.9,
+	        depth: mobile ? 0.58 : 0.78,
+	        thickness: mobile ? 0.075 : 0.09,
+	        y: mobile ? 0.08 : -0.3,
+	        z: mobile ? 0.32 : 0.43,
+	      }));
 	    }
+    if (mobile) bay.position.z = 0.18;
     bay.add(display);
     this.viewerProduct = display;
     this.viewerProductInfo = { productId: product.id, baseScale: display.scale.clone() };
     this.applyLayerExpansionToObject(display, this.layersExpanded, true);
     this.viewerBay = bay;
-	    this.viewerGroup.add(this.createWallLightPool(0, mobile ? 2.5 : 1.9, mobile ? 1.9 : 2.5, mobile ? 2.0 : 2.8, 0.16), bay);
+	    this.viewerGroup.add(this.createWallLightPool(mobile ? 0.9 : 0, mobile ? 1.62 : 1.9, mobile ? 2.1 : 2.5, mobile ? 2.2 : 2.8, mobile ? 0.24 : 0.16), bay);
+      if (mobile) {
+        const viewerSoftbox = new THREE.RectAreaLight(0xfff0d8, 4.1, 3.4, 3.2);
+        viewerSoftbox.position.set(1.6, 2.82, 3.7);
+        viewerSoftbox.lookAt(0.9, 1.62, 0.45);
+        const viewerRim = new THREE.PointLight(0xffbd70, 1.25, 5.5, 1.8);
+        viewerRim.position.set(-0.6, 2.05, 1.8);
+        this.viewerGroup.add(viewerSoftbox, viewerRim);
+      }
 	  }
 
-  // D54: the viewer mesh REPRESENTS the selected variant. Size scales the whole piece
-  // relative to the largest size (the display default), Thickness scales depth only,
-  // Acrylic swaps non-shared materials to a gloss finish. Wood restores the originals.
-  applyViewerVariant(productId, { sizeRatio = 1, thicknessMul = 1, acrylic = false } = {}) {
+  // D54/D59: the viewer mesh REPRESENTS the selected variant. Size scales the whole piece,
+  // Thickness scales depth, Acrylic changes the finish, and eligible product colors tint only
+  // product-owned materials. Shared wall/text/shelf materials are never mutated.
+  applyViewerVariant(productId, { sizeRatio = 1, thicknessMul = 1, acrylic = false, color = null } = {}) {
     if (this.state?.mode !== "viewer") return;
     if (!this.viewerProduct || this.viewerProductInfo?.productId !== productId) return;
     const base = this.viewerProductInfo.baseScale;
@@ -1495,25 +1740,42 @@ export class GalleryScene {
     this.viewerProduct.traverse((child) => {
       if (!child.isMesh) return;
       const materials = Array.isArray(child.material) ? child.material : [child.material];
-      const swapped = materials.map((material) => {
-        if (!material?.isMeshStandardMaterial || this.sharedMaterials.has(material)) return material;
-        // Remember which original each mesh had so Wood always restores exactly.
-        if (!child.userData.woodMaterials) child.userData.woodMaterials = new Map();
-        const original = child.userData.woodMaterials.get(material.uuid)?.wood ?? material;
-        if (!acrylic) return original;
-        let entry = child.userData.woodMaterials.get(original.uuid);
-        if (!entry) {
-          const gloss = original.clone();
-          gloss.roughness = 0.12;
-          gloss.metalness = 0.08;
-          entry = { wood: original, acrylic: gloss };
-          child.userData.woodMaterials.set(original.uuid, entry);
-          child.userData.woodMaterials.set(gloss.uuid, entry);
+      if (!child.userData.variantBaseMaterials) child.userData.variantBaseMaterials = [...materials];
+      if (!child.userData.variantMaterialCache) child.userData.variantMaterialCache = new Map();
+      const swapped = child.userData.variantBaseMaterials.map((original, index) => {
+        if (!original?.isMeshStandardMaterial || this.sharedMaterials.has(original)) return original;
+        if (!acrylic && !color) return original;
+        const key = `${index}|${original.uuid}|${acrylic ? "acrylic" : "wood"}|${color ?? "base"}`;
+        if (!child.userData.variantMaterialCache.has(key)) {
+          const variant = original.clone();
+          const absoluteBlack = color?.toLowerCase() === "#000000";
+          if (acrylic) {
+            variant.roughness = 0.12;
+            variant.metalness = 0.08;
+          }
+          if (color) {
+            variant.color.set(color);
+            if (absoluteBlack) {
+              // D66: selected black stays optically black even under the portrait key/softbox.
+              // Keep only a restrained broad highlight so the extrusion remains dimensional.
+              variant.roughness = acrylic ? 0.48 : 0.92;
+              variant.metalness = 0;
+              if ("specularIntensity" in variant) variant.specularIntensity = 0.12;
+            }
+          }
+          child.userData.variantMaterialCache.set(key, variant);
         }
-        return entry.acrylic;
+        return child.userData.variantMaterialCache.get(key);
       });
       child.material = Array.isArray(child.material) ? swapped : swapped[0];
     });
+  }
+
+  setWallColor(color = "#ffffff") {
+    if (!this.wallMesh || !/^#[0-9a-f]{6}$/i.test(color)) return;
+    // The procedural plaster map retains its relief/detail; material color acts as a live tint.
+    this.wallMesh.material.color.set(color);
+    this.wallMesh.material.needsUpdate = true;
   }
 
   setLayerExpanded(productId, expanded) {
@@ -1618,29 +1880,27 @@ export class GalleryScene {
   }
 
   createProductDisplay(product, bounds) {
+    let display;
     if (product.kind === "object") {
-      return this.createObjectProduct(product, bounds);
+      display = this.createObjectProduct(product, bounds);
+    } else {
+      const aspect = product.aspect ?? 1;
+      const fitted = fit(bounds.width, bounds.height, aspect);
+
+      if (product.kind === "layered") {
+        display = this.createLayeredProduct(product, bounds);
+      } else if (product.kind === "digital") {
+        display = this.createDigitalProduct(product, fitted);
+      } else if (product.kind === "wall-art") {
+        display = this.createWallArtProduct(product, bounds);
+      } else {
+        display = new THREE.Group();
+        const plane = this.createImagePlane(product.image, fitted.width, fitted.height, { transparent: true, physical: false });
+        display.add(plane);
+      }
     }
-
-    const group = new THREE.Group();
-    const aspect = product.aspect ?? 1;
-    const fitted = fit(bounds.width, bounds.height, aspect);
-
-    if (product.kind === "layered") {
-      return this.createLayeredProduct(product, bounds);
-    }
-
-    if (product.kind === "digital") {
-      return this.createDigitalProduct(product, fitted);
-    }
-
-    if (product.kind === "wall-art") {
-      return this.createWallArtProduct(product, bounds);
-    }
-
-    const plane = this.createImagePlane(product.image, fitted.width, fitted.height, { transparent: true, physical: false });
-    group.add(plane);
-    return group;
+    display.userData.productId = product.id;
+    return display;
   }
 
   // Digital Art = POSTER (D34). One black sheet mesh; the final print file is the texture of the
@@ -1877,11 +2137,13 @@ export class GalleryScene {
     const targetWidth = bounds.width * (bounds.big ? 0.88 : 0.82);
     const targetHeight = bounds.height * (bounds.big ? 0.9 : 0.84);
     const depth = bounds.big ? 0.078 : 0.048;
-    // BA_MAT_BLACK_WOOD: linear (0.03, 0.025, 0.022) -> #302c29, rough 0.55.
-    const material = new THREE.MeshStandardMaterial({
-      color: bounds.homeDark ? 0x090807 : 0x302c29,
-      roughness: bounds.homeDark ? 0.42 : 0.55,
-      metalness: bounds.homeDark ? 0.12 : 0,
+    // D66 web presentation override: Wall Art is absolute neutral black, not the warm
+    // #302c29 Blender wood swatch. Low specular response prevents warm lights lifting it brown.
+    const material = new THREE.MeshPhysicalMaterial({
+      color: ABSOLUTE_PRODUCT_BLACK,
+      roughness: 0.92,
+      metalness: 0,
+      specularIntensity: 0.12,
       side: THREE.DoubleSide,
     });
     const group = new THREE.Group();
@@ -1981,7 +2243,7 @@ export class GalleryScene {
 
   createObjectFallback(product, bounds) {
     const group = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: bounds.homeDark ? 0x050403 : 0x080807, roughness: 0.4, metalness: 0.2 });
+    const mat = new THREE.MeshStandardMaterial({ color: ABSOLUTE_PRODUCT_BLACK, roughness: 0.88, metalness: 0 });
     const gold = new THREE.MeshStandardMaterial({ color: 0x8f6730, roughness: 0.5, metalness: 0.4 });
     // Small 3D previews stay conservative because procedural tails, legs, and bases project wider
     // when the category camera is angled.
@@ -2065,9 +2327,9 @@ export class GalleryScene {
     const geometry = sourceGeometry.clone();
     geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({
-      color: bounds.homeDark ? 0x070605 : product.materialColor ?? 0x302c29,
-      roughness: bounds.homeDark ? 0.38 : 0.5,
-      metalness: bounds.homeDark ? 0.16 : 0.04,
+      color: product.materialColor ?? ABSOLUTE_PRODUCT_BLACK,
+      roughness: product.materialColor ? 0.5 : 0.88,
+      metalness: product.materialColor ? 0.04 : 0,
     });
     const mesh = new THREE.Mesh(geometry, material);
     const rotation = product.modelRotation ?? [-Math.PI / 2, 0, 0];
@@ -2213,74 +2475,53 @@ export class GalleryScene {
 
   createPlasterTexture() {
     const canvas = document.createElement("canvas");
-    canvas.width = 1024;
+    canvas.width = 2048;
     canvas.height = 1024;
     const ctx = canvas.getContext("2d");
+    // Flat parity base keeps the repeating texture seamless; irregular cloud/grain layers
+    // carry the variation without producing horizontal bands at tile boundaries.
     ctx.fillStyle = "#c0aa89";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    for (let i = 0; i < 1600; i += 1) {
-      const alpha = Math.random() * 0.08;
-      ctx.fillStyle = Math.random() > 0.5 ? `rgba(74,60,42,${alpha})` : `rgba(248,228,196,${alpha})`;
-      ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, Math.random() * 2 + 0.5, Math.random() * 2 + 0.5);
-    }
-    for (let i = 0; i < 520; i += 1) {
+
+    for (let i = 0; i < 36; i += 1) {
       const x = Math.random() * canvas.width;
       const y = Math.random() * canvas.height;
-      const length = 5 + Math.random() * 22;
-      ctx.strokeStyle = Math.random() > 0.45 ? "rgba(78,58,35,0.11)" : "rgba(255,237,205,0.12)";
-      ctx.lineWidth = 0.7 + Math.random() * 1.4;
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.quadraticCurveTo(x + length * 0.45, y + (Math.random() - 0.5) * 8, x + length, y + (Math.random() - 0.5) * 5);
-      ctx.stroke();
-    }
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(5, 1.5);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    return texture;
-  }
-
-  createHomeWallFinishTexture() {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1024;
-    canvas.height = 1024;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#80583b";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    for (let i = 0; i < 7200; i += 1) {
-      const light = Math.random() > 0.48;
-      const alpha = 0.035 + Math.random() * 0.11;
-      ctx.fillStyle = light ? `rgba(245,215,174,${alpha})` : `rgba(57,35,22,${alpha})`;
-      const size = 0.6 + Math.random() * 2.8;
-      ctx.fillRect(Math.random() * 1024, Math.random() * 1024, size, size * (0.45 + Math.random()));
+      const radius = 80 + Math.random() * 230;
+      const cloud = ctx.createRadialGradient(x, y, 0, x, y, radius);
+      cloud.addColorStop(0, Math.random() > 0.5 ? "rgba(86,59,35,0.08)" : "rgba(255,239,207,0.1)");
+      cloud.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = cloud;
+      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
 
-    for (let i = 0; i < 900; i += 1) {
-      const x = Math.random() * 1024;
-      const y = Math.random() * 1024;
-      const length = 7 + Math.random() * 36;
-      ctx.strokeStyle = Math.random() > 0.52 ? "rgba(45,27,16,0.15)" : "rgba(255,228,188,0.13)";
-      ctx.lineWidth = 0.7 + Math.random() * 2.2;
+    for (let i = 0; i < 5200; i += 1) {
+      const alpha = 0.012 + Math.random() * 0.09;
+      ctx.fillStyle = Math.random() > 0.5 ? `rgba(74,52,33,${alpha})` : `rgba(255,237,205,${alpha})`;
+      const size = Math.random() * 2.4 + 0.35;
+      ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, size, size * (0.35 + Math.random()));
+    }
+    for (let i = 0; i < 1200; i += 1) {
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      const length = 6 + Math.random() * 44;
+      ctx.strokeStyle = Math.random() > 0.45 ? "rgba(78,52,31,0.13)" : "rgba(255,241,214,0.14)";
+      ctx.lineWidth = 0.45 + Math.random() * 1.8;
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.bezierCurveTo(
         x + length * 0.3,
         y + (Math.random() - 0.5) * 12,
-        x + length * 0.72,
+        x + length * 0.7,
         y + (Math.random() - 0.5) * 12,
         x + length,
-        y + (Math.random() - 0.5) * 8,
+        y + (Math.random() - 0.5) * 7,
       );
       ctx.stroke();
     }
-
     const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(4.2, 1.55);
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.repeat.set(1, 1);
     texture.colorSpace = THREE.SRGBColorSpace;
     return texture;
   }
@@ -2356,136 +2597,17 @@ export class GalleryScene {
     return texture;
   }
 
-  createFloorTexture() {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1024;
-    canvas.height = 1024;
-    const ctx = canvas.getContext("2d");
-
-    const base = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    base.addColorStop(0, "#040403");
-    base.addColorStop(0.38, "#11100d");
-    base.addColorStop(0.72, "#060504");
-    base.addColorStop(1, "#18130c");
-    ctx.fillStyle = base;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    for (let i = 0; i < 9000; i += 1) {
-      const warm = Math.random() > 0.62;
-      const alpha = 0.018 + Math.random() * 0.07;
-      ctx.fillStyle = warm ? `rgba(101,78,38,${alpha})` : `rgba(205,198,178,${alpha * 0.45})`;
-      const size = 0.8 + Math.random() * 3.8;
-      ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, size, size * (0.35 + Math.random() * 1.4));
-    }
-
-    const slabW = 320;
-    const slabH = 320;
-    ctx.strokeStyle = "rgba(231,184,81,0.14)";
-    ctx.lineWidth = 1.2;
-    for (let x = 0; x <= canvas.width; x += slabW) {
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, 0);
-      ctx.lineTo(x + 0.5, canvas.height);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= canvas.height; y += slabH) {
-      ctx.beginPath();
-      ctx.moveTo(0, y + 0.5);
-      ctx.lineTo(canvas.width, y + 0.5);
-      ctx.stroke();
-    }
-
-    const drawVein = (gold = false) => {
-      const startX = Math.random() * canvas.width;
-      const startY = Math.random() * canvas.height;
-      const length = (gold ? 95 : 120) + Math.random() * (gold ? 260 : 340);
-      const angle = Math.random() * Math.PI * 2;
-      const segments = 4 + Math.floor(Math.random() * 4);
-      const points = [];
-      for (let i = 0; i <= segments; i += 1) {
-        const t = i / segments;
-        points.push({
-          x: startX + Math.cos(angle) * length * t + (Math.random() - 0.5) * 42,
-          y: startY + Math.sin(angle) * length * t + (Math.random() - 0.5) * 42,
-        });
-      }
-
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.strokeStyle = gold ? "rgba(235,174,48,0.28)" : "rgba(216,211,198,0.08)";
-      ctx.lineWidth = gold ? 4.8 + Math.random() * 5.6 : 2.4 + Math.random() * 5.2;
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      points.slice(1).forEach((point, index) => {
-        const previous = points[index];
-        ctx.quadraticCurveTo(
-          (previous.x + point.x) / 2 + (Math.random() - 0.5) * 20,
-          (previous.y + point.y) / 2 + (Math.random() - 0.5) * 20,
-          point.x,
-          point.y,
-        );
-      });
-      ctx.stroke();
-
-      ctx.strokeStyle = gold ? "rgba(255,220,118,0.9)" : "rgba(226,222,210,0.34)";
-      ctx.lineWidth = gold ? 1.1 + Math.random() * 1.8 : 0.45 + Math.random() * 1.1;
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
-      ctx.stroke();
-
-      if (Math.random() > (gold ? 0.55 : 0.42)) {
-        const branchStart = points[1 + Math.floor(Math.random() * Math.max(1, points.length - 2))];
-        const branchAngle = angle + (Math.random() > 0.5 ? 1 : -1) * (0.62 + Math.random() * 0.9);
-        const branchLength = length * (0.18 + Math.random() * 0.22);
-        ctx.strokeStyle = gold ? "rgba(255,214,107,0.68)" : "rgba(221,218,207,0.22)";
-        ctx.lineWidth = gold ? 0.7 + Math.random() * 1.1 : 0.35 + Math.random() * 0.8;
-        ctx.beginPath();
-        ctx.moveTo(branchStart.x, branchStart.y);
-        ctx.quadraticCurveTo(
-          branchStart.x + Math.cos(branchAngle) * branchLength * 0.55 + (Math.random() - 0.5) * 18,
-          branchStart.y + Math.sin(branchAngle) * branchLength * 0.55 + (Math.random() - 0.5) * 18,
-          branchStart.x + Math.cos(branchAngle) * branchLength,
-          branchStart.y + Math.sin(branchAngle) * branchLength,
-        );
-        ctx.stroke();
-      }
-    };
-
-    for (let i = 0; i < 52; i += 1) drawVein(false);
-    for (let i = 0; i < 38; i += 1) drawVein(true);
-
-    for (let i = 0; i < 520; i += 1) {
-      ctx.fillStyle = `rgba(255,218,104,${0.2 + Math.random() * 0.5})`;
-      const r = 0.35 + Math.random() * 1.4;
-      ctx.beginPath();
-      ctx.arc(Math.random() * canvas.width, Math.random() * canvas.height, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(7.2, 2.55);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    return texture;
-  }
-
   createLights() {
-    // Dim ambient: the render's drama comes from warm pools against dark falloff, not fill.
-    // FULLY LIT ROOM (D41): even, bright gallery illumination — no spotlights anywhere.
-    const ambient = new THREE.HemisphereLight(0xffe6c8, 0x3a2c1c, 0.85);
-    const coveWash = new THREE.RectAreaLight(LIGHT_COLOR, 3.2, 12, 1.9);
-    coveWash.position.set(2.6, 3.25, 0.62);
-    coveWash.lookAt(2.6, 2.08, 0.02);
-    const front = new THREE.RectAreaLight(FRONT_FILL_COLOR, 3.4, 10, 2.5);
-    front.position.set(-0.9, 2.6, 7.0);
+    // D57 replaces the old cove-sized wash with one tall soft source. The previous narrow
+    // area light left a visible horizontal lighting boundary once the header was removed.
+    const ambient = new THREE.HemisphereLight(0xffe6c8, 0x3a2c1c, 0.78);
+    const wallWash = new THREE.RectAreaLight(LIGHT_COLOR, 2.35, 16, 8);
+    wallWash.position.set(2.6, 3.8, 5.4);
+    wallWash.lookAt(2.6, 2.8, 0.02);
+    const front = new THREE.RectAreaLight(FRONT_FILL_COLOR, 2.65, 10, 4.4);
+    front.position.set(-0.9, 2.8, 7.0);
     front.lookAt(-0.9, 1.5, 0);
-    // Broad floor wash so the black marble keeps readable gold veining instead of falling flat.
-    const floorWash = new THREE.RectAreaLight(FRONT_FILL_COLOR, 1.6, 14, 4);
-    floorWash.position.set(2.6, 3.4, 3.2);
-    floorWash.lookAt(2.6, 0, 3.1);
-    this.scene.add(ambient, coveWash, front, floorWash);
+    this.scene.add(ambient, wallWash, front);
   }
 
   createRowWash(position, target, intensity) {
@@ -2502,31 +2624,15 @@ export class GalleryScene {
       map: this.lightPoolTexture,
       color: 0xffd9a8,
       transparent: true,
-      opacity,
+      // D66: broad atmosphere, not a white hotspot behind the selected piece.
+      opacity: opacity * 0.52,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
-    const pool = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(width * 1.35, height * 1.35), material);
     pool.position.set(x, y, 0.006);
     pool.userData.excludeFromTransition = true;
     return pool;
-  }
-
-  createWallShadeMaterial() {
-    const canvas = document.createElement("canvas");
-    canvas.width = 8;
-    canvas.height = 512;
-    const ctx = canvas.getContext("2d");
-    const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0, "rgba(8,5,3,0.07)");
-    gradient.addColorStop(0.15, "rgba(8,5,3,0)");
-    gradient.addColorStop(0.85, "rgba(8,5,3,0)");
-    gradient.addColorStop(1, "rgba(8,5,3,0.1)");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    return new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false });
   }
 
   createLightPoolTexture() {
@@ -2534,10 +2640,10 @@ export class GalleryScene {
     canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext("2d");
-    const gradient = ctx.createRadialGradient(256, 230, 12, 256, 256, 255);
-    gradient.addColorStop(0, "rgba(255,226,151,0.95)");
-    gradient.addColorStop(0.38, "rgba(255,188,99,0.48)");
-    gradient.addColorStop(0.75, "rgba(255,168,70,0.12)");
+    const gradient = ctx.createRadialGradient(256, 238, 6, 256, 256, 255);
+    gradient.addColorStop(0, "rgba(255,226,166,0.62)");
+    gradient.addColorStop(0.36, "rgba(255,198,122,0.34)");
+    gradient.addColorStop(0.76, "rgba(255,178,92,0.09)");
     gradient.addColorStop(1, "rgba(255,168,70,0)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -2562,7 +2668,6 @@ export class GalleryScene {
         return;
       }
 	      const delta = event.clientX - this.dragLastX;
-	      const deltaY = event.clientY - this.dragLastY;
 	      this.dragLastX = event.clientX;
 	      this.dragLastY = event.clientY;
 	      if (Math.hypot(event.clientX - this.dragStartX, event.clientY - this.dragStartY) > 4) {
@@ -2572,7 +2677,7 @@ export class GalleryScene {
 	      if (this.state?.mode === "viewer" && this.viewerProduct) {
 	        this.viewerOrbit = THREE.MathUtils.clamp(this.viewerOrbit + delta * 0.006, -1.25, 1.25);
 	      } else if (this.state?.mode === "category") {
-	        const scrollDelta = this.gridLayout?.stepY ? -deltaY * 0.008 : -delta * 0.012;
+	        const scrollDelta = this.gridLayout?.ring ? -delta * 0.009 : -delta * 0.012;
 	        this.scrollCategoryTo(this.scrollOffset + scrollDelta);
 	      }
     });
@@ -2584,6 +2689,7 @@ export class GalleryScene {
     });
     this.canvas.addEventListener("pointerup", (event) => {
       if (this.dragging && this.dragMoved) {
+        if (this.state?.mode === "category") this.snapCategoryRing();
         this.dragging = false;
         return;
 	      }
@@ -2604,6 +2710,10 @@ export class GalleryScene {
         if (this.state?.mode !== "category") return;
         event.preventDefault();
         this.scrollCategoryTo(this.scrollOffset + event.deltaY * 0.003);
+        if (this.gridLayout?.ring) {
+          window.clearTimeout(this.ringSnapTimer);
+          this.ringSnapTimer = window.setTimeout(() => this.snapCategoryRing(), 140);
+        }
       },
       { passive: false },
     );
@@ -2683,16 +2793,20 @@ export class GalleryScene {
 	    const wasMobile = this.mobileLayout;
 	    const mobile = this.isMobileLayout();
 	    this.mobileLayout = mobile;
-	    this.renderViewport = mobile ? this.mobileFrame(width, height) : { left: 0, top: 0, width, height };
+	    // Real phones fill their actual viewport. Only a manually forced mobile preview on a
+	    // laptop is framed to a representative 390×844 device, so the toggle previews reality.
+	    this.renderViewport = this.isForcedMobilePreview()
+	      ? this.mobilePreviewFrame(width, height)
+	      : { left: 0, top: 0, width, height };
 	    this.renderer.setSize(width, height, false);
-	    this.camera.aspect = mobile ? MOBILE_CAMERA_ASPECT : width / height;
+	    this.camera.aspect = this.renderViewport.width / this.renderViewport.height;
 	    this.camera.fov = mobile ? 43 : 33;
 	    this.camera.updateProjectionMatrix();
-	    // D55: portrait swaps the whole gallery architecture for the charcoal mobile stage —
-	    // products float over the backdrop and every text surface moves to DOM UI.
-	    this.architecture.visible = !mobile;
-	    this.atmosphereGroup.visible = !mobile;
+	    // D64: the same tall textured wall is the only architecture on every breakpoint.
+    // Portrait adds a lighting rig, never a replacement backdrop.
+	    this.architecture.visible = true;
 	    if (this.mobileStage) this.mobileStage.visible = mobile;
+	    this.renderer.toneMappingExposure = mobile ? 1.12 : 1.02;
 	    if (mobile) this.logoGroup.visible = false;
 	    else if (this.state) this.logoGroup.visible = this.state.mode === "intro" || this.state.mode === "home";
 	    if (wasMobile !== mobile) {
@@ -2710,11 +2824,13 @@ export class GalleryScene {
 	    // fov + aspect are final above — refit the home dolly so the wall never clips at narrow
 	    // landscape aspects. Boot (no state yet) starts on home framing; category/viewer stay put.
 	    if (!this.state || this.state.mode === "home" || this.state.mode === "intro") {
-	      this.targetCamera.x = homeCameraX(this.camera.aspect);
-	      this.targetCamera.y = homeCameraY(this.camera.aspect);
-	      this.targetCamera.z = homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
+	      this.targetCamera.x = mobile ? -4 : homeCameraX(this.camera.aspect);
+	      this.targetCamera.y = mobile ? MOBILE_HOME_Y : homeCameraY(this.camera.aspect);
+	      this.targetCamera.z = mobile
+	        ? MOBILE_HOME_CAMERA_Z
+	        : homeCameraZ(this.camera.aspect, THREE.MathUtils.degToRad(this.camera.fov));
 	      this.targetLook.x = this.targetCamera.x;
-	      this.targetLook.y = homeLookY(this.camera.aspect);
+	      this.targetLook.y = mobile ? MOBILE_HOME_Y : homeLookY(this.camera.aspect);
 	      this.applyHomeLayout();
 	      this.setIntroLayout();
 	      this.setHoveredHomeZone(null);
@@ -2759,17 +2875,22 @@ export class GalleryScene {
 	      this.homeZones.forEach((entry) => {
 	        const active = entry === this.hoveredHomeZone && this.state?.mode === "home" && !this.transition;
 	        const revealScale = smooth01(entry.revealProgress ?? 1);
-	        const targetScale = (entry.layoutScale ?? 1) * revealScale * (active ? 1.065 : 1);
+	        // Product roots reveal around their own pivots below. The zone itself stays at its
+	        // final transform so the product cannot drift from a false spawn point.
+	        const targetScale = (entry.layoutScale ?? 1) * (active ? 1.065 : 1);
         const targetZ = active ? 0.2 : 0;
         entry.group.visible = revealScale > 0.01;
         entry.group.scale.setScalar(entry.group.scale.x + (targetScale - entry.group.scale.x) * 0.14);
         entry.group.position.z += (targetZ - entry.group.position.z) * 0.16;
-        if (!this.transition?.introToHome) {
-          entry.products?.forEach((item) => {
-            const productTargetZ = item.basePosition.z + (1 - revealScale) * PRODUCT_LATCH_DISTANCE;
-            item.object.position.z += (productTargetZ - item.object.position.z) * 0.2;
-          });
-        }
+        entry.products?.forEach((item) => {
+          if (item.object.userData?.transitionAnchor || item.object.parent !== entry.group) return;
+          item.object.position.copy(item.basePosition);
+          item.object.scale.copy(item.baseScale).multiplyScalar(Math.max(0.001, revealScale));
+        });
+        entry.revealDecor?.forEach((item) => {
+          item.object.position.copy(item.basePosition);
+          item.object.scale.copy(item.baseScale).multiplyScalar(Math.max(0.001, revealScale));
+        });
       });
     }
     if (this.gridBays) {
@@ -2785,7 +2906,12 @@ export class GalleryScene {
         const targetProductZ = entry.productBaseZ + (1 - revealScale) * PRODUCT_LATCH_DISTANCE + (active ? 0.16 : 0);
         entry.bay.visible = edgeScale > 0.035 || entry.bay.scale.x > 0.04;
         entry.bay.scale.setScalar(entry.bay.scale.x + (targetBayScale - entry.bay.scale.x) * 0.18);
-        entry.bay.position.z += (0 - entry.bay.position.z) * 0.18;
+        if (entry.targetPosition) {
+          entry.bay.position.lerp(entry.targetPosition, 0.2);
+          entry.bay.rotation.y += ((entry.targetRotationY ?? 0) - entry.bay.rotation.y) * 0.2;
+        } else {
+          entry.bay.position.z += (0 - entry.bay.position.z) * 0.18;
+        }
         entry.productDisplay.scale.x += (entry.productBaseScale.x * productScaleMul - entry.productDisplay.scale.x) * 0.2;
         entry.productDisplay.scale.y += (entry.productBaseScale.y * productScaleMul - entry.productDisplay.scale.y) * 0.2;
         entry.productDisplay.scale.z += (entry.productBaseScale.z * productScaleMul - entry.productDisplay.scale.z) * 0.2;
@@ -2820,17 +2946,22 @@ export class GalleryScene {
         item.scale.copy(item.userData.introBaseScale).multiplyScalar(Math.max(0.001, 1 - hide * 0.28));
       });
 
-      this.homeGalleryRevealItems.forEach((item, index) => {
-        const reveal = smooth01((elapsed - 1.25 - index * 0.26) / 0.46);
-        item.object.visible = reveal > 0.01;
-        item.object.position.copy(item.basePosition);
-        item.object.position.z += (1 - reveal) * PRODUCT_LATCH_DISTANCE;
-        item.object.scale.copy(item.baseScale).multiplyScalar(Math.max(0.001, reveal));
+      this.homeGalleryRevealItems.forEach((entry, index) => {
+        const reveal = smooth01(
+          (elapsed - HOME_GALLERY_REVEAL_START - index * HOME_GALLERY_REVEAL_INTERVAL)
+          / HOME_GALLERY_REVEAL_DURATION,
+        );
+        entry.revealProgress = reveal;
+        entry.group.visible = reveal > 0.01;
+        entry.products.forEach((item) => {
+          if (!item.object.visible || item.object.parent !== entry.group) return;
+          item.object.position.copy(item.basePosition);
+        });
       });
     }
 
     transition.outgoingItems.forEach(({ object, index, scale, position, isBay }) => {
-      const settle = smooth01((elapsed - index * 0.012) / 0.34);
+      const settle = smooth01((elapsed - index * transition.outgoingStagger) / transition.outgoingDuration);
       object.scale.copy(scale).multiplyScalar(1 - settle * (isBay ? 0.18 : 0.08));
       object.position.copy(position);
       if (isBay) object.position.z -= settle * 0.18;
@@ -2838,58 +2969,70 @@ export class GalleryScene {
     });
 
     if (transition.source && transition.sourceStart && transition.sourceEnd) {
-      const move = smooth01((elapsed - 0.42) / 0.72);
-      const detach = smooth01((elapsed - 0.34) / 0.18) * (1 - move);
+      const move = smooth01((elapsed - transition.sourceMoveAt) / transition.sourceMoveDuration);
+      const detach = smooth01((elapsed - transition.sourceMoveAt) / 0.18) * (1 - move);
       transition.source.position.lerpVectors(transition.sourceStart, transition.sourceEnd, move);
       transition.source.position.z += detach * 0.22 + Math.sin(move * Math.PI) * 0.2;
       transition.source.scale.lerpVectors(transition.sourceStartScale, transition.sourceEndScale, move);
-      transition.source.visible = elapsed < 1.92;
+      if (transition.sourceStartQuaternion && transition.sourceEndQuaternion) {
+        transition.source.quaternion.slerpQuaternions(transition.sourceStartQuaternion, transition.sourceEndQuaternion, move);
+      }
+      transition.source.visible = true;
     }
 
-    if (transition.destinationBay) {
-      const reveal = smooth01((elapsed - 1.88) / 0.24);
+    // Home has its own per-section sequence. Applying the generic destination-bay reveal here
+    // overwrote the Wall Art zone's 0.285 portrait scale with 0.9–1.0 until transition end.
+    if (transition.destinationBay && this.state?.mode !== "home") {
+      const reveal = smooth01((elapsed - transition.destinationRevealAt) / 0.24);
       transition.destinationBay.visible = reveal > 0;
-      transition.destinationBay.scale.setScalar(Math.max(0.001, 0.9 + reveal * 0.1));
+      const base = transition.destinationBayBaseScale ?? new THREE.Vector3(1, 1, 1);
+      transition.destinationBay.scale.copy(base).multiplyScalar(Math.max(0.001, 0.9 + reveal * 0.1));
     }
 
-    if (transition.destinationProduct && transition.destinationProductBasePosition) {
-      const reveal = smooth01((elapsed - 1.88) / 0.42);
+    if (this.state?.mode !== "home" && !transition.source && transition.destinationProduct && transition.destinationProductBasePosition) {
+      const reveal = smooth01((elapsed - transition.destinationRevealAt) / 0.42);
       transition.destinationProduct.visible = reveal > 0;
       transition.destinationProduct.position.copy(transition.destinationProductBasePosition);
       transition.destinationProduct.position.z += (1 - reveal) * PRODUCT_LATCH_DISTANCE;
-    } else if (transition.destinationProduct) {
-      transition.destinationProduct.visible = elapsed >= 1.88;
+    } else if (this.state?.mode !== "home" && !transition.source && transition.destinationProduct) {
+      transition.destinationProduct.visible = elapsed >= transition.destinationRevealAt;
     }
 
     if (this.state?.mode === "category" && this.categoryDescription) {
       const glyphs = this.categoryDescription.userData.revealGlyphs ?? [];
       const interval = Math.min(0.012, 0.85 / Math.max(1, glyphs.length));
       glyphs.forEach((glyph, index) => {
-        const reveal = smooth01((elapsed - 1.92 - index * interval) / 0.12);
+        const reveal = smooth01((elapsed - transition.categoryTextAt - index * interval) / 0.12);
         glyph.visible = reveal > 0;
         glyph.scale.copy(glyph.userData.revealBaseScale).multiplyScalar(0.78 + reveal * 0.22);
         glyph.position.copy(glyph.userData.revealBasePosition);
         glyph.position.z += (1 - reveal) * 0.055;
       });
-      const dividerAt = 1.92 + this.categoryDescription.userData.titleGlyphCount * interval + 0.08;
+      const dividerAt = transition.categoryTextAt + this.categoryDescription.userData.titleGlyphCount * interval + 0.08;
       if (this.categoryDescription.userData.revealDivider) {
         this.categoryDescription.userData.revealDivider.visible = elapsed >= dividerAt;
       }
     }
 
-    const cameraProgress = smooth01((elapsed - 1.2) / 0.68);
+    const cameraProgress = smooth01((elapsed - transition.cameraMoveAt) / transition.cameraMoveDuration);
     this.camera.position.lerpVectors(transition.cameraStart, transition.cameraEnd, cameraProgress);
     this.look.lerpVectors(transition.lookStart, transition.lookEnd, cameraProgress);
 
     if (this.state?.mode === "category" && this.gridBays) {
       this.gridBays.forEach((entry) => {
-        entry.revealProgress = THREE.MathUtils.clamp((elapsed - 2.62 - entry.revealIndex * 0.11) / 0.42, 0, 1);
+        const interval = this.isMobileLayout() ? 0.2 : 0.11;
+        entry.revealProgress = THREE.MathUtils.clamp((elapsed - transition.gridRevealAt - entry.revealIndex * interval) / 0.42, 0, 1);
       });
     }
 
     if (this.state?.mode === "home" && this.homeZones && !transition.introToHome) {
       this.homeZones.forEach((entry) => {
-        entry.revealProgress = THREE.MathUtils.clamp((elapsed - 0.42 - entry.revealIndex * 0.2) / 0.42, 0, 1);
+        entry.revealProgress = THREE.MathUtils.clamp(
+          (elapsed - transition.homeRevealAt - entry.revealIndex * HOME_GALLERY_REVEAL_INTERVAL)
+          / HOME_GALLERY_REVEAL_DURATION,
+          0,
+          1,
+        );
       });
     }
 
@@ -2948,12 +3091,6 @@ function gridEdgeScale(visibleX, rightEdge) {
   const leftScale = smooth01((visibleX - HERO_GRID_VANISH_X) / Math.max(0.001, GRID_EDGE_SCALE_DISTANCE));
   const rightScale = smooth01((rightEdge - visibleX) / GRID_EDGE_SCALE_DISTANCE);
   return Math.max(0.01, Math.min(leftScale, rightScale));
-}
-
-function gridEdgeScaleY(visibleY, topEdge, bottomEdge, fade = 0.82) {
-  const topScale = smooth01((topEdge - visibleY) / fade);
-  const bottomScale = smooth01((visibleY - bottomEdge) / fade);
-  return Math.max(0.01, Math.min(topScale, bottomScale));
 }
 
 function findTransitionAncestor(object) {
