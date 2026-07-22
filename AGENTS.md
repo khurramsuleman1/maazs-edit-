@@ -15,6 +15,9 @@ At the start of every session, if the local AI workspace exists:
 Before finishing any meaningful session, update `AI_WORKSPACE/docs/STATUS.md` and append
 one line to `AI_WORKSPACE/docs/CHANGELOG.md`. Never stage or commit `AI_WORKSPACE/`.
 
+`vercel.json` is the root deployment adapter: it installs, builds, and serves the project
+from `WEBSITE/` when Vercel connects to the repository root.
+
 Website commands run from `WEBSITE/` (`npm install`, `npm run dev`, `npm run build`).
 Keep secrets out of Git and preserve the existing Vite/Three.js architecture unless the
 task explicitly changes it.

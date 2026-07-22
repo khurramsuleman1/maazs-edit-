@@ -16,3 +16,5 @@ npm run dev
 ```
 
 Build the production site with `npm run build` from `WEBSITE/`.
+
+Vercel Git deployments are routed into `WEBSITE/` by the root `vercel.json` file.
