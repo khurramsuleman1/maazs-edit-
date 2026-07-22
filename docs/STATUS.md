@@ -3,7 +3,7 @@
 > Source of truth. Always current. Read first, update before finishing.
 > Keep it short — finished work moves to CHANGELOG, not here.
 
-**Last updated:** 2026-07-23 by Codex (D67/D68 live; GitHub authenticated and release branch prepared)
+**Last updated:** 2026-07-23 by Codex (D67/D68 live; GitHub release branch pushed and draft PR #1 open)
 **Checkpoint:** v2 current-state snapshot.
 **Phase:** Vite/Three.js single-wall storefront: Intro → Gallery View → category/collection product rings → viewer/Custom Studio.
 **Shopify:** Admin data pulled 2026-07-12: 506 products, 38 collections, PKR, 173/198 local storefront products matched.
@@ -26,17 +26,19 @@
 - **D68 is published:** mobile final-product arrays and the viewer share camera `(0.9, 1.66, 4.7)`, look center `(0.9, 1.66, 0)`, mount center `(0.9, 1.62, 0.18)`, initial product footprint, and 3D shelf footprint. Opening/returning from a viewer preserves the selected Object3D's transform; only neighbours and viewer controls change.
 - **Verification passed locally:** `npm run build`; D67 screenshot-based reveal-in-motion QA at 390×844 and settled/round-trip QA at 430×932; D68 frame-by-frame Layered Art handoff at 390×844 plus real-STL/shelf handoff at 430×932; selected product size/center remained unchanged and zero console errors were recorded. The 240 generated deployment files matched the prepared D67/D68 source checksums. Vite still gives the expected >500 kB main-chunk warning for the unsplit Three.js bundle.
 - **Public phone test now points to the D67/D68 local build:** `https://black-aesthetics-3d-test.chaosstudios.chatgpt.site`. Sites reports the corrected client-layout deployment as succeeded. An initial root-layout package briefly returned 404 during validation and was immediately replaced. Shopify, GoDaddy DNS, and `blackaestheticspk.com` were not changed.
+- **GitHub snapshot is published:** branch `codex/d67-d68-live-storefront` contains the exact build-verified D67/D68 storefront plus the Git LFS-managed `BAstore.blend` source; draft PR #1 targets `main`.
 - **Local-server diagnosis:** the Vite project is healthy and starts at `http://localhost:5173/`; the former link stopped responding because no `npm run dev` process remained after the prior publishing teardown, not because the source or dependencies broke.
 - **Current commerce remains in-site:** Shopify-matched variant pricing, product/material/color options, Wall Color visualization, Cart/Buy staged checkout, WhatsApp/COD handoff, and category-specific Custom Studio entries.
 - **Asset gate unchanged:** no new Blender-authored asset was created or wired in this pass; existing product/SVG/STL data was reused.
 
 ## Next
 
-1. Test the updated public URL on the reported phones, especially the D67 Gallery sequence and D68 stationary product-to-viewer handoff.
-2. After the real-phone experience is approved, connect `3d.blackaestheticspk.com` and add its link to the Shopify homepage/menu.
-3. Decide the next Custom Studio input: reference-file preview, written brief, or both before WhatsApp quote handoff.
-4. Optional performance pass: Web Workers/pre-generated geometry plus bundle splitting.
-5. Complete and review Blender D47/D48 parity before exporting any newly authored asset.
+1. Review and merge GitHub draft PR #1 when the D67/D68 snapshot is ready for `main`.
+2. Test the updated public URL on the reported phones, especially the D67 Gallery sequence and D68 stationary product-to-viewer handoff.
+3. After the real-phone experience is approved, connect `3d.blackaestheticspk.com` and add its link to the Shopify homepage/menu.
+4. Decide the next Custom Studio input: reference-file preview, written brief, or both before WhatsApp quote handoff.
+5. Optional performance pass: Web Workers/pre-generated geometry plus bundle splitting.
+6. Complete and review Blender D47/D48 parity before exporting any newly authored asset.
 
 ## Blocked
 

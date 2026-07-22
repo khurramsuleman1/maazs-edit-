@@ -167,3 +167,4 @@
 2026-07-23 — [Codex] — Installed GitHub CLI 2.96.0 for the requested publish, confirmed no GitHub account is authenticated, and paused before staging until `gh auth login` is completed.
 2026-07-23 — [Codex] — Started GitHub's device authentication flow for the requested publish and paused before staging while browser approval is pending.
 2026-07-23 — [Codex] — Completed GitHub authentication, created the `codex/d67-d68-live-storefront` release branch, and build-verified the exact storefront snapshot before commit.
+2026-07-23 — [Codex] — Committed and pushed the D67/D68 storefront snapshot with its 211 MB Git LFS Blender source to `codex/d67-d68-live-storefront` and opened draft PR #1 against `main`.
