@@ -215,6 +215,8 @@ export class GalleryScene {
     // castShadow/receiveShadow flags are kept, harmless while disabled, ready if a shadow-casting
     // light is ever approved in Blender.
     this.renderer.shadowMap.enabled = false;
+    // Cap anisotropic filtering to the GPU max; applied per texture (lower on phones, see loadTexture).
+    this.maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x120d09);
@@ -2431,7 +2433,7 @@ export class GalleryScene {
           URL.revokeObjectURL(url);
           const texture = new THREE.CanvasTexture(canvas);
           texture.colorSpace = THREE.SRGBColorSpace;
-          texture.anisotropy = 8;
+          texture.anisotropy = Math.min(this.maxAnisotropy ?? 8, this.isMobileLayout() ? 4 : 8);
           material.map = texture;
           material.visible = true;
           material.needsUpdate = true;
@@ -2504,7 +2506,7 @@ export class GalleryScene {
       );
     });
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 8;
+    texture.anisotropy = Math.min(this.maxAnisotropy ?? 8, this.isMobileLayout() ? 4 : 8);
     texture.userData.readyPromise = readyPromise;
     this.textureCache.set(path, texture);
     return texture;
@@ -2839,6 +2841,10 @@ export class GalleryScene {
 	    this.renderViewport = this.isForcedMobilePreview()
 	      ? this.mobilePreviewFrame(width, height)
 	      : { left: 0, top: 0, width, height };
+	    // Phones render far more physical pixels per CSS pixel; cap DPR lower there (desktop keeps
+	    // 1.5 so the approved landscape renders are unchanged). setPixelRatio must precede setSize.
+	    const targetPixelRatio = mobile ? Math.min(window.devicePixelRatio, 1.25) : Math.min(window.devicePixelRatio, 1.5);
+	    if (this.renderer.getPixelRatio() !== targetPixelRatio) this.renderer.setPixelRatio(targetPixelRatio);
 	    this.renderer.setSize(width, height, false);
 	    this.camera.aspect = this.renderViewport.width / this.renderViewport.height;
 	    this.camera.fov = mobile ? 43 : 33;
