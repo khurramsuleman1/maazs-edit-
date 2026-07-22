@@ -205,7 +205,7 @@ const digitalProducts = [
 ].map(([name, file, aspect]) => ({
   id: `digital-${slug(name)}`,
   name,
-  image: `/products/digital/final/${file}`,
+  image: `/products/digital/final/${file.replace(/\.(?:jpe?g|png)$/i, ".webp")}`,
   kind: "digital",
   aspect,
   material: "Poster — final print on black sheet",
