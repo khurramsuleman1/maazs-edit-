@@ -209,8 +209,12 @@ export class GalleryScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.02;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Shadows are intentionally OFF: no light in the scene sets castShadow (the key lights are
+    // Hemisphere/RectArea/Directional-without-shadows), so enabling the shadow map produced no
+    // shadows while still compiling shadow-sampling code into every material. The mesh
+    // castShadow/receiveShadow flags are kept, harmless while disabled, ready if a shadow-casting
+    // light is ever approved in Blender.
+    this.renderer.shadowMap.enabled = false;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x120d09);
