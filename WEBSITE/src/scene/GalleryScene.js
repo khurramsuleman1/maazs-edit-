@@ -857,6 +857,15 @@ export class GalleryScene {
   scheduleAssetPrewarm() {
     if (this.assetPrewarmStarted) return;
     this.assetPrewarmStarted = true;
+
+    // Respect the visitor's connection. On Save-Data or 2g, skip eager prewarming entirely and let
+    // assets stream in on demand; on 3g, prewarm only the category/subcollection heroes. This keeps
+    // slow links responsive and stops the whole 42MB catalog being pulled for a one-category visit
+    // (which also protects the deployment's monthly bandwidth budget).
+    const conn = navigator.connection ?? navigator.mozConnection ?? navigator.webkitConnection;
+    if (conn?.saveData === true || /(?:^|-)2g$/.test(conn?.effectiveType ?? "")) return;
+    const heroesOnly = conn?.effectiveType === "3g";
+
     const seen = new Set();
     const pushProduct = (product) => {
       if (!product || seen.has(product.id)) return;
@@ -870,12 +879,22 @@ export class GalleryScene {
         pushProduct(getSubcollectionHeroProduct(category, subcollection.id));
       });
     });
-    this.categories.forEach((category) => category.products.forEach(pushProduct));
+    if (!heroesOnly) {
+      this.categories.forEach((category) => category.products.forEach(pushProduct));
+    }
+
+    // Prewarming is idle-time, non-urgent work; pause it while the tab is hidden and resume on return.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && this.assetPrewarmQueue.length) {
+        this.scheduleIdleTask(() => this.pumpAssetPrewarm(), 700);
+      }
+    });
 
     window.setTimeout(() => this.scheduleIdleTask(() => this.pumpAssetPrewarm(), 700), 700);
   }
 
   pumpAssetPrewarm() {
+    if (document.hidden) return; // resumes via the visibilitychange listener above
     let count = 0;
     while (this.assetPrewarmQueue.length && count < 3) {
       this.prewarmProductAssets(this.assetPrewarmQueue.shift());
