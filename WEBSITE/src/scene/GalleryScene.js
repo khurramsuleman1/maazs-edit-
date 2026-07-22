@@ -1942,7 +1942,7 @@ export class GalleryScene {
         display = this.createWallArtProduct(product, bounds);
       } else {
         display = new THREE.Group();
-        const plane = this.createImagePlane(product.image, fitted.width, fitted.height, { transparent: true, physical: false });
+        const plane = this.createImagePlane(product.image, fitted.width, fitted.height, { transparent: true });
         display.add(plane);
       }
     }
@@ -2494,25 +2494,16 @@ export class GalleryScene {
     return mesh;
   }
 
-  createImagePlane(path, width, height, { transparent = false, physical = false } = {}) {
+  createImagePlane(path, width, height, { transparent = false } = {}) {
     const texture = this.loadTexture(path);
-    const material = physical
-      ? new THREE.MeshPhysicalMaterial({
-          map: texture,
-          roughness: 0.18,
-          metalness: 0.02,
-          clearcoat: 0.85,
-          clearcoatRoughness: 0.08,
-          side: THREE.DoubleSide,
-        })
-      : new THREE.MeshStandardMaterial({
-          map: texture,
-          transparent,
-          alphaTest: transparent ? 0.08 : 0,
-          roughness: 0.62,
-          metalness: 0.02,
-          side: THREE.DoubleSide,
-        });
+    const material = new THREE.MeshStandardMaterial({
+      map: texture,
+      transparent,
+      alphaTest: transparent ? 0.08 : 0,
+      roughness: 0.62,
+      metalness: 0.02,
+      side: THREE.DoubleSide,
+    });
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
     mesh.castShadow = true;
     return mesh;
