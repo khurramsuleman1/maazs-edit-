@@ -1,30 +1,21 @@
-# dependencies
-node_modules/
+# Personal AI workspace: memory, source art, Blender files, workbench tools, and local archives.
+/AI_WORKSPACE/
 
-# build output
-dist/
+# Website dependencies and generated output.
+/WEBSITE/node_modules/
+/WEBSITE/dist/
 
-# secrets — never commit Shopify tokens
+# Secrets — never commit Shopify tokens.
 .env
 .env.local
+/WEBSITE/.env
+/WEBSITE/.env.local
 
-# OS / editor
+# OS/editor and transient files.
 .DS_Store
 *.log
 
-# Blender backups
+# Local source backups must never be added to the website repository.
+*.blend
 *.blend1
 *.blend2
-
-# heavy local working files (keep source .blend, ignore autosaves/renders-in-progress)
-assets/renders/pending/*.tmp
-
-# Heavy existing source assets — keep broad folders local, except the LFS-tracked
-# Blender source file that designers edit.
-/2D Art All SVG/
-/BA All DATA/**
-*.blend
-!/BA All DATA/
-!/BA All DATA/All Multilayer Art-3/
-!/BA All DATA/All Multilayer Art-3/BAstore.blend
-LOGO Blackaesthetics.svg
