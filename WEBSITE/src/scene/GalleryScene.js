@@ -130,6 +130,12 @@ const HOME_GALLERY_REVEAL_START = 1.24;
 const HOME_GALLERY_REVEAL_INTERVAL = 0.98;
 const HOME_GALLERY_REVEAL_DURATION = 0.46;
 
+// On-demand rendering thresholds. Below these deltas an eased value is treated as settled,
+// letting the render loop stop drawing until the next real change (transition, input, or a
+// resolved async asset). CAMERA_SETTLE_EPS is compared against squared distances.
+const CAMERA_SETTLE_EPS = 1e-6;
+const EASE_SETTLE_EPS = 1e-4;
+
 const WALL_FONT = new FontLoader().parse(fontData);
 RectAreaLightUniformsLib.init();
 
@@ -163,6 +169,9 @@ export class GalleryScene {
     this.pointer = new THREE.Vector2();
     this.raycaster = new THREE.Raycaster();
     this.clock = new THREE.Clock();
+    // On-demand rendering state: draw only when something changed. Seeded true for the first frame.
+    this.needsRender = true;
+    this.renderCount = 0;
     this.targetCamera = HOME_CAMERA.clone();
     this.targetLook = HOME_LOOK.clone();
     this.look = HOME_LOOK.clone();
@@ -795,6 +804,7 @@ export class GalleryScene {
 	    this.scrollOffset = nextOffset;
 	    this.applyGridTrackPosition();
 	    this.updateCategoryGrid();
+	    this.requestRender();
 	    if (this.gridLayout?.ring) this.onMobileLaneChange?.(this.getMobileLaneItem());
 	  }
 
@@ -1769,6 +1779,7 @@ export class GalleryScene {
       });
       child.material = Array.isArray(child.material) ? swapped : swapped[0];
     });
+    this.requestRender();
   }
 
   setWallColor(color = "#ffffff") {
@@ -1776,6 +1787,7 @@ export class GalleryScene {
     // The procedural plaster map retains its relief/detail; material color acts as a live tint.
     this.wallMesh.material.color.set(color);
     this.wallMesh.material.needsUpdate = true;
+    this.requestRender();
   }
 
   setLayerExpanded(productId, expanded) {
@@ -1783,6 +1795,7 @@ export class GalleryScene {
     if (this.state?.mode !== "viewer") return;
     if (!this.viewerProduct || this.viewerProductInfo?.productId !== productId) return;
     this.applyLayerExpansionToObject(this.viewerProduct, expanded);
+    this.requestRender();
   }
 
   applyLayerExpansionToObject(root, expanded, immediate = false) {
@@ -1803,7 +1816,10 @@ export class GalleryScene {
     });
   }
 
+  // Returns true while any layer stack is still assembling/settling, so the render loop
+  // keeps drawing until the animation is at rest.
   updateLayeredStacks(delta) {
+    let moving = false;
     this.layerStackAnimations.forEach((stack) => {
       if (!stack.parent) {
         this.layerStackAnimations.delete(stack);
@@ -1817,9 +1833,12 @@ export class GalleryScene {
         layerGroup.scale.setScalar(Math.max(0.001, reveal));
         const targetZ = layerGroup.userData.layerTargetZ ?? layerGroup.userData.layerBaseZ ?? layerGroup.position.z;
         const introLift = (1 - reveal) * (LAYER_ASSEMBLE_LATCH_DISTANCE + index * 0.035);
-        layerGroup.position.z += (targetZ + introLift - layerGroup.position.z) * 0.18;
+        const goalZ = targetZ + introLift;
+        layerGroup.position.z += (goalZ - layerGroup.position.z) * 0.18;
+        if (reveal < 0.999 || Math.abs(goalZ - layerGroup.position.z) > EASE_SETTLE_EPS) moving = true;
       });
     });
+    return moving;
   }
 
   createDescriptionPanel(category) {
@@ -1954,6 +1973,7 @@ export class GalleryScene {
         if (this.viewerProductInfo?.productId === product.id && this.layersExpanded) {
           this.applyLayerExpansionToObject(group, true);
         }
+        this.requestRender();
       });
       return group;
     }
@@ -1968,6 +1988,7 @@ export class GalleryScene {
           if (this.viewerProductInfo?.productId === product.id && this.layersExpanded) {
             this.applyLayerExpansionToObject(group, true);
           }
+          this.requestRender();
         });
       })
       .catch((error) => {
@@ -2192,6 +2213,7 @@ export class GalleryScene {
         group.remove(fallback);
         fallback.geometry.dispose();
         group.add(content);
+        this.requestRender();
     };
 
     const buildWhenIdle = (svgText) => {
@@ -2234,6 +2256,7 @@ export class GalleryScene {
         group.remove(fallback);
         disposeObject3D(fallback);
         group.add(model);
+        this.requestRender();
       })
       .catch((error) => {
         console.warn(`[BA] Could not load STL for ${product.name}`, error);
@@ -2408,6 +2431,7 @@ export class GalleryScene {
           material.map = texture;
           material.visible = true;
           material.needsUpdate = true;
+          this.requestRender();
         };
         img.src = url;
       })
@@ -2464,7 +2488,16 @@ export class GalleryScene {
     if (this.textureCache.has(path)) return this.textureCache.get(path);
     let texture;
     const readyPromise = new Promise((resolve, reject) => {
-      texture = this.textureLoader.load(path, () => resolve(texture), undefined, reject);
+      texture = this.textureLoader.load(
+        path,
+        () => {
+          // A resolved texture uploads on the next draw — kick one render (on-demand loop).
+          this.requestRender();
+          resolve(texture);
+        },
+        undefined,
+        reject,
+      );
     });
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
@@ -2676,6 +2709,7 @@ export class GalleryScene {
 	      }
 	      if (this.state?.mode === "viewer" && this.viewerProduct) {
 	        this.viewerOrbit = THREE.MathUtils.clamp(this.viewerOrbit + delta * 0.006, -1.25, 1.25);
+	        this.requestRender();
 	      } else if (this.state?.mode === "category") {
 	        const scrollDelta = this.gridLayout?.ring ? -delta * 0.009 : -delta * 0.012;
 	        this.scrollCategoryTo(this.scrollOffset + scrollDelta);
@@ -2764,13 +2798,16 @@ export class GalleryScene {
 	    this.raycaster.setFromCamera(this.pointer, this.camera);
     const entries = this.gridHitEntries ?? [];
     const hit = this.raycaster.intersectObjects(this.gridHittables ?? [], false)[0];
+    const previousEntry = this.hoveredEntry;
     this.hoveredEntry = hit ? entries.find((entry) => entry.hit === hit.object) ?? null : null;
+    if (this.hoveredEntry !== previousEntry) this.requestRender();
     this.canvas.style.cursor = this.hoveredEntry ? "pointer" : "";
   }
 
   setHoveredHomeZone(entry) {
     if (entry === this.hoveredHomeZone) return;
     this.hoveredHomeZone = entry;
+    this.requestRender();
     this.onCategoryPreview?.(entry?.group.userData.categoryId ?? null);
   }
 
@@ -2842,6 +2879,7 @@ export class GalleryScene {
 	      this.targetCamera.copy(mobile ? VIEWER_MOBILE_CAMERA : VIEWER_CAMERA);
 	      this.targetLook.copy(mobile ? VIEWER_MOBILE_LOOK : VIEWER_LOOK);
 	    }
+	    this.requestRender();
 	  }
 
   renderScene() {
@@ -2860,17 +2898,39 @@ export class GalleryScene {
     this.renderer.setScissorTest(false);
   }
 
+  requestRender() {
+    this.needsRender = true;
+  }
+
   animate() {
     requestAnimationFrame(() => this.animate());
     const delta = Math.min(this.clock.getDelta(), 0.04);
-    if (this.transition) this.updateTransition(delta);
-    else {
+    // `busy` = something is still moving this frame, so we must draw and keep drawing.
+    let busy = false;
+
+    if (this.transition) {
+      this.updateTransition(delta);
+      busy = true;
+    } else {
       const cameraEase = 1 - Math.exp(-delta * 3.1);
       const lookEase = 1 - Math.exp(-delta * 3.6);
       this.camera.position.lerp(this.targetCamera, cameraEase);
       this.look.lerp(this.targetLook, lookEase);
+      if (
+        this.camera.position.distanceToSquared(this.targetCamera) > CAMERA_SETTLE_EPS ||
+        this.look.distanceToSquared(this.targetLook) > CAMERA_SETTLE_EPS
+      ) {
+        busy = true;
+      } else {
+        // Snap to target so the settled check stays true and the loop can rest.
+        this.camera.position.copy(this.targetCamera);
+        this.look.copy(this.targetLook);
+      }
     }
-    if (this.viewerProduct) this.viewerProduct.rotation.y += (this.viewerOrbit - this.viewerProduct.rotation.y) * 0.12;
+    if (this.viewerProduct) {
+      this.viewerProduct.rotation.y += (this.viewerOrbit - this.viewerProduct.rotation.y) * 0.12;
+      if (Math.abs(this.viewerOrbit - this.viewerProduct.rotation.y) > EASE_SETTLE_EPS) busy = true;
+    }
 	    if (this.homeZones) {
 	      this.homeZones.forEach((entry) => {
 	        const active = entry === this.hoveredHomeZone && this.state?.mode === "home" && !this.transition;
@@ -2882,6 +2942,11 @@ export class GalleryScene {
         entry.group.visible = revealScale > 0.01;
         entry.group.scale.setScalar(entry.group.scale.x + (targetScale - entry.group.scale.x) * 0.14);
         entry.group.position.z += (targetZ - entry.group.position.z) * 0.16;
+        if (
+          (entry.revealProgress ?? 1) < 1 ||
+          Math.abs(targetScale - entry.group.scale.x) > EASE_SETTLE_EPS ||
+          Math.abs(targetZ - entry.group.position.z) > EASE_SETTLE_EPS
+        ) busy = true;
         entry.products?.forEach((item) => {
           if (item.object.userData?.transitionAnchor || item.object.parent !== entry.group) return;
           item.object.position.copy(item.basePosition);
@@ -2909,19 +2974,36 @@ export class GalleryScene {
         if (entry.targetPosition) {
           entry.bay.position.lerp(entry.targetPosition, 0.2);
           entry.bay.rotation.y += ((entry.targetRotationY ?? 0) - entry.bay.rotation.y) * 0.2;
+          if (
+            entry.bay.position.distanceToSquared(entry.targetPosition) > CAMERA_SETTLE_EPS ||
+            Math.abs((entry.targetRotationY ?? 0) - entry.bay.rotation.y) > EASE_SETTLE_EPS
+          ) busy = true;
         } else {
           entry.bay.position.z += (0 - entry.bay.position.z) * 0.18;
+          if (Math.abs(entry.bay.position.z) > EASE_SETTLE_EPS) busy = true;
         }
         entry.productDisplay.scale.x += (entry.productBaseScale.x * productScaleMul - entry.productDisplay.scale.x) * 0.2;
         entry.productDisplay.scale.y += (entry.productBaseScale.y * productScaleMul - entry.productDisplay.scale.y) * 0.2;
         entry.productDisplay.scale.z += (entry.productBaseScale.z * productScaleMul - entry.productDisplay.scale.z) * 0.2;
         entry.productDisplay.position.z += (targetProductZ - entry.productDisplay.position.z) * 0.2;
+        if (
+          (entry.revealProgress ?? 1) < 1 ||
+          Math.abs(targetBayScale - entry.bay.scale.x) > EASE_SETTLE_EPS ||
+          Math.abs(entry.productBaseScale.x * productScaleMul - entry.productDisplay.scale.x) > EASE_SETTLE_EPS ||
+          Math.abs(targetProductZ - entry.productDisplay.position.z) > EASE_SETTLE_EPS
+        ) busy = true;
         if (entry.hoverGlow) entry.hoverGlow.visible = active;
       });
     }
-	    this.updateLayeredStacks(delta);
-	    this.camera.lookAt(this.look);
-	    this.renderScene();
+	    if (this.updateLayeredStacks(delta)) busy = true;
+
+	    if (busy) this.needsRender = true;
+	    if (this.needsRender) {
+	      this.camera.lookAt(this.look);
+	      this.renderScene();
+	      this.renderCount += 1;
+	      this.needsRender = false;
+	    }
 	  }
 
   updateTransition(delta) {
