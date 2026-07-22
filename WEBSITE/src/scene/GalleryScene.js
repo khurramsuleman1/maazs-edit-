@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { FontLoader } from "three/addons/loaders/FontLoader.js";
 import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
 import { SVGLoader } from "three/addons/loaders/SVGLoader.js";
-import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { TextGeometry } from "three/addons/geometries/TextGeometry.js";
 import fontData from "three/examples/fonts/helvetiker_bold.typeface.json";
 import { getCategory, getHeroProduct, getProduct, getSubcollection, getSubcollectionHeroProduct, getSubcollectionProducts } from "../data/catalog.js";
@@ -152,12 +153,15 @@ export class GalleryScene {
     this.onMobileLaneChange = onMobileLaneChange;
     this.textureLoader = new THREE.TextureLoader();
     this.svgLoader = new SVGLoader();
-    this.stlLoader = new STLLoader();
+    // 3D objects load as Draco-compressed GLB. One DRACOLoader, decoder served from /draco/,
+    // decodes off the main thread in a worker.
+    this.dracoLoader = new DRACOLoader().setDecoderPath("/draco/");
+    this.gltfLoader = new GLTFLoader().setDRACOLoader(this.dracoLoader);
     this.textureCache = new Map();
     this.svgTextCache = new Map();
     this.svgResolvedCache = new Map();
-    this.stlCache = new Map();
-    this.stlResolvedCache = new Map();
+    this.modelCache = new Map();
+    this.modelResolvedCache = new Map();
     this.categoryPreparationCache = new Map();
     this.textGeometryCache = new Map();
     this.assetPrewarmQueue = [];
@@ -846,7 +850,7 @@ export class GalleryScene {
         return [texture.userData.readyPromise ?? Promise.resolve(texture)];
       }
       if (product.kind === "layered") return (product.layers ?? []).map((path) => this.loadSvgText(path));
-      if (product.kind === "object" && product.model) return [this.loadStlGeometry(product.model)];
+      if (product.kind === "object" && product.model) return [this.loadModelGeometry(product.model)];
       return [];
     });
     const preparation = Promise.allSettled(tasks).then(() => undefined);
@@ -914,7 +918,7 @@ export class GalleryScene {
     } else if (product.kind === "layered") {
       product.layers?.forEach((path) => this.loadSvgText(path).catch(() => {}));
     } else if (product.kind === "object" && product.model) {
-      this.loadStlGeometry(product.model).catch(() => {});
+      this.loadModelGeometry(product.model).catch(() => {});
     }
   }
 
@@ -2268,16 +2272,16 @@ export class GalleryScene {
     if (!product.model) return fallback;
 
     const group = new THREE.Group();
-    const cachedGeometry = this.stlResolvedCache.get(product.model);
+    const cachedGeometry = this.modelResolvedCache.get(product.model);
     if (cachedGeometry) {
       disposeObject3D(fallback);
-      group.add(this.createStlMesh(product, bounds, cachedGeometry));
+      group.add(this.createModelMesh(product, bounds, cachedGeometry));
       return group;
     }
     group.add(fallback);
-    this.loadStlGeometry(product.model)
+    this.loadModelGeometry(product.model)
       .then((geometry) => {
-        const model = this.createStlMesh(product, bounds, geometry);
+        const model = this.createModelMesh(product, bounds, geometry);
         group.remove(fallback);
         disposeObject3D(fallback);
         group.add(model);
@@ -2371,9 +2375,11 @@ export class GalleryScene {
     return group;
   }
 
-  createStlMesh(product, bounds, sourceGeometry) {
+  createModelMesh(product, bounds, sourceGeometry) {
     const geometry = sourceGeometry.clone();
-    geometry.computeVertexNormals();
+    // GLB geometry ships with baked (flat) normals; only compute if a source somehow lacks them,
+    // so the printed-object shading matches the original STL render exactly.
+    if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({
       color: product.materialColor ?? ABSOLUTE_PRODUCT_BLACK,
       roughness: product.materialColor ? 0.5 : 0.88,
@@ -2408,15 +2414,23 @@ export class GalleryScene {
     return wrapper;
   }
 
-  loadStlGeometry(path) {
-    if (!this.stlCache.has(path)) {
-      this.stlCache.set(
+  loadModelGeometry(path) {
+    if (!this.modelCache.has(path)) {
+      this.modelCache.set(
         path,
         new Promise((resolve, reject) => {
-          this.stlLoader.load(
+          this.gltfLoader.load(
             path,
-            (geometry) => {
-              this.stlResolvedCache.set(path, geometry);
+            (gltf) => {
+              let geometry = null;
+              gltf.scene.traverse((object) => {
+                if (!geometry && object.isMesh) geometry = object.geometry;
+              });
+              if (!geometry) {
+                reject(new Error(`No mesh geometry in ${path}`));
+                return;
+              }
+              this.modelResolvedCache.set(path, geometry);
               resolve(geometry);
             },
             undefined,
@@ -2425,7 +2439,7 @@ export class GalleryScene {
         }),
       );
     }
-    return this.stlCache.get(path);
+    return this.modelCache.get(path);
   }
 
   // The real BA logo (D21). The SVG has a viewBox but no width/height, so TextureLoader
