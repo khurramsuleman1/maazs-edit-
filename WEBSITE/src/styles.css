@@ -2598,6 +2598,10 @@ input:focus-visible {
   display: grid;
   place-items: center;
 }
+/* The `hidden` attribute must win over the display:grid above, or the modal covers the site on load. */
+.wall-viz-modal[hidden] {
+  display: none;
+}
 .wall-viz-backdrop {
   position: absolute;
   inset: 0;
