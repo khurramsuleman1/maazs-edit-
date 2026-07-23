@@ -1,8 +1,11 @@
 // "See it on your wall" — a self-contained visualiser. The user uploads a photo of their room,
-// drops a Black Aesthetics piece onto it, then moves / zooms / rotates / tilts it (CSS 3D
-// perspective) to picture it on their actual wall. Kept decoupled from the 3D gallery and the
-// HUD's data-action delegation: it owns its launch button and modal, and only reads a flat list
+// drops one or more Black Aesthetics pieces onto it, then moves / zooms / rotates / tilts each one
+// (CSS 3D perspective) to picture it on their actual wall. Kept decoupled from the 3D gallery and
+// the HUD's data-action delegation: it owns its launch button and modal, and only reads a flat list
 // of placeable art (pieces that have a single 2D image — digital posters + wall-art silhouettes).
+//
+// Multiple pieces: every thumbnail click ADDS a piece. Exactly one piece is "selected" at a time —
+// the sliders, wheel/pinch zoom and Reset act on the selection; dragging a piece selects it.
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -11,6 +14,12 @@ const LIMITS = {
   rot: [-180, 180],
   tilt: [-60, 60],
 };
+
+// Each additional piece is nudged down-right so a fresh drop never hides the one beneath it.
+const STACK_OFFSET = 46;
+// A piece at zoom 1 covers this fraction of the *photo's* width — sized against the wall the
+// visitor actually uploaded, not the letterboxed stage, so it reads at a believable scale.
+const BASE_WIDTH_RATIO = 0.22;
 
 export function createWallPreview({ artItems = [], getActiveProductId = () => null } = {}) {
   const items = artItems.filter((a) => a && a.image);
@@ -47,13 +56,11 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
           <span class="wall-viz-hint">Your photo stays on your device &mdash; it is never uploaded anywhere.</span>
         </div>
         <img class="wall-viz-photo" data-wv-photo alt="Your wall" hidden />
-        <div class="wall-viz-artwrap" data-wv-artwrap hidden>
-          <img class="wall-viz-art" data-wv-art alt="" draggable="false" />
-        </div>
-        <span class="wall-viz-drag-hint" data-wv-draghint hidden>Drag to move &middot; scroll or pinch to zoom</span>
+        <div class="wall-viz-pieces" data-wv-pieces></div>
+        <span class="wall-viz-drag-hint" data-wv-draghint hidden>Tap a piece to select &middot; drag to move &middot; scroll or pinch to zoom</span>
       </div>
       <div class="wall-viz-panel">
-        <div class="wall-viz-picker" data-wv-picker role="listbox" aria-label="Choose art"></div>
+        <div class="wall-viz-picker" data-wv-picker role="listbox" aria-label="Add art to your wall"></div>
         <div class="wall-viz-sliders">
           <label class="wall-viz-slider"><span>Zoom</span><input type="range" data-wv-slider="scale" min="0.15" max="4" step="0.01" value="1" /></label>
           <label class="wall-viz-slider"><span>Rotate</span><input type="range" data-wv-slider="rot" min="-180" max="180" step="1" value="0" /></label>
@@ -62,7 +69,9 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
         </div>
         <div class="wall-viz-actions">
           <button type="button" class="wall-viz-btn" data-wv-upload>Change photo</button>
-          <button type="button" class="wall-viz-btn" data-wv-reset>Reset</button>
+          <button type="button" class="wall-viz-btn" data-wv-reset>Reset piece</button>
+          <button type="button" class="wall-viz-btn" data-wv-remove disabled>Remove piece</button>
+          <button type="button" class="wall-viz-btn" data-wv-clear disabled>Clear all</button>
           <button type="button" class="wall-viz-btn primary" data-wv-download disabled>Download</button>
         </div>
       </div>
@@ -74,12 +83,13 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
   const stage = q("[data-wv-stage]");
   const photo = q("[data-wv-photo]");
   const empty = q("[data-wv-empty]");
-  const artWrap = q("[data-wv-artwrap]");
-  const art = q("[data-wv-art]");
+  const layer = q("[data-wv-pieces]");
   const picker = q("[data-wv-picker]");
   const fileInput = q("[data-wv-file]");
   const dragHint = q("[data-wv-draghint]");
   const downloadBtn = q("[data-wv-download]");
+  const removeBtn = q("[data-wv-remove]");
+  const clearBtn = q("[data-wv-clear]");
   const sliders = {
     scale: q('[data-wv-slider="scale"]'),
     rot: q('[data-wv-slider="rot"]'),
@@ -87,39 +97,126 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
     tiltY: q('[data-wv-slider="tiltY"]'),
   };
 
-  const t = { cx: 0, cy: 0, scale: 1, rot: 0, tiltX: 0, tiltY: 0 };
-  let currentArt = null;
+  /** @type {{item:any, wrap:HTMLElement, img:HTMLImageElement, t:{cx:number,cy:number,scale:number,rot:number,tiltX:number,tiltY:number}}[]} */
+  const pieces = [];
+  let selected = null;
   let photoUrl = null;
   let lastFocus = null;
 
-  function applyTransform() {
-    artWrap.style.left = `${t.cx}px`;
-    artWrap.style.top = `${t.cy}px`;
-    artWrap.style.transform =
+  const hasPhoto = () => !photo.hidden;
+
+  function applyTransform(piece) {
+    const { wrap, t } = piece;
+    wrap.style.left = `${t.cx}px`;
+    wrap.style.top = `${t.cy}px`;
+    wrap.style.transform =
       `translate(-50%, -50%) rotateX(${t.tiltX}deg) rotateY(${t.tiltY}deg) rotateZ(${t.rot}deg) scale(${t.scale})`;
   }
 
   function syncSliders() {
+    const t = selected?.t;
+    const enabled = Boolean(t);
+    Object.values(sliders).forEach((s) => { s.disabled = !enabled; });
+    if (!t) return;
     sliders.scale.value = String(t.scale);
     sliders.rot.value = String(t.rot);
     sliders.tiltX.value = String(t.tiltX);
     sliders.tiltY.value = String(t.tiltY);
   }
 
-  function centerArt(resetTransform = true) {
+  // On-screen box of the photo inside the stage (it is object-fit: contain, so it is letterboxed).
+  // Sizing/centring against this — not the stage — keeps the art proportionate to the real wall.
+  function photoRect() {
     const rect = stage.getBoundingClientRect();
-    if (resetTransform) {
-      t.cx = rect.width / 2;
-      t.cy = rect.height / 2;
-      t.scale = 1;
-      t.rot = 0;
-      t.tiltX = 0;
-      t.tiltY = 0;
+    if (!hasPhoto() || !photo.naturalWidth) {
+      return { width: rect.width, height: rect.height, cx: rect.width / 2, cy: rect.height / 2 };
     }
-    // Base display width so scale=1 shows the piece at ~32% of the stage; zoom multiplies from there.
-    art.style.width = `${Math.round(rect.width * 0.32)}px`;
-    applyTransform();
+    const pAsp = photo.naturalWidth / photo.naturalHeight;
+    const sAsp = rect.width / rect.height;
+    let w = rect.width;
+    let h = rect.height;
+    if (pAsp > sAsp) h = rect.width / pAsp;
+    else w = rect.height * pAsp;
+    return { width: w, height: h, cx: rect.width / 2, cy: rect.height / 2 };
+  }
+
+  function sizePiece(piece) {
+    piece.img.style.width = `${Math.round(photoRect().width * BASE_WIDTH_RATIO)}px`;
+    applyTransform(piece);
+  }
+
+  function selectPiece(piece) {
+    selected = piece || null;
+    pieces.forEach((p) => p.wrap.classList.toggle("is-selected", p === selected));
+    // Picker highlights whichever art the selected piece uses.
+    picker.querySelectorAll(".wall-viz-thumb").forEach((el) => {
+      const active = Boolean(selected) && el.dataset.id === selected.item.id;
+      el.classList.toggle("is-active", active);
+      el.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    removeBtn.disabled = !selected;
     syncSliders();
+  }
+
+  function addPiece(item) {
+    const pr = photoRect();
+    const n = pieces.length;
+    const wrap = document.createElement("div");
+    wrap.className = "wall-viz-artwrap";
+    const img = document.createElement("img");
+    img.className = "wall-viz-art";
+    img.draggable = false;
+    img.alt = item.name || "Art piece";
+    wrap.appendChild(img);
+
+    const piece = {
+      item,
+      wrap,
+      img,
+      t: {
+        // Fan new pieces out from the photo's centre, wrapping so they never march off-frame.
+        cx: pr.cx + ((n % 4) - 1.5) * STACK_OFFSET,
+        cy: pr.cy + (Math.floor(n / 4) % 3) * STACK_OFFSET,
+        scale: 1,
+        rot: 0,
+        tiltX: 0,
+        tiltY: 0,
+      },
+    };
+
+    img.onload = () => sizePiece(piece);
+    img.src = item.image;
+
+    attachDrag(piece);
+    layer.appendChild(wrap);
+    pieces.push(piece);
+    sizePiece(piece);
+    selectPiece(piece);
+    refreshButtons();
+    return piece;
+  }
+
+  function removePiece(piece) {
+    const i = pieces.indexOf(piece);
+    if (i === -1) return;
+    piece.wrap.remove();
+    pieces.splice(i, 1);
+    selectPiece(pieces[pieces.length - 1] || null);
+    refreshButtons();
+  }
+
+  function clearPieces() {
+    pieces.splice(0).forEach((p) => p.wrap.remove());
+    selectPiece(null);
+    refreshButtons();
+  }
+
+  function refreshButtons() {
+    const any = pieces.length > 0;
+    downloadBtn.disabled = !(hasPhoto() && any);
+    clearBtn.disabled = !any;
+    removeBtn.disabled = !selected;
+    dragHint.hidden = !(hasPhoto() && any);
   }
 
   function setPhoto(url) {
@@ -128,30 +225,12 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
     photo.onload = () => {
       photo.hidden = false;
       empty.hidden = true;
-      if (!currentArt) selectArt(preselectItem());
-      artWrap.hidden = false;
-      dragHint.hidden = false;
-      downloadBtn.disabled = false;
-      centerArt(true);
+      // First photo: seed the wall with the piece the visitor was last looking at.
+      if (!pieces.length) addPiece(preselectItem());
+      else pieces.forEach(sizePiece);
+      refreshButtons();
     };
     photo.src = url;
-  }
-
-  function selectArt(item) {
-    if (!item) return;
-    currentArt = item;
-    art.onload = () => centerArt(false);
-    art.src = item.image;
-    art.alt = item.name || "Art piece";
-    picker.querySelectorAll(".wall-viz-thumb").forEach((el) => {
-      const active = el.dataset.id === item.id;
-      el.classList.toggle("is-active", active);
-      el.setAttribute("aria-selected", active ? "true" : "false");
-    });
-    if (!photo.hidden) {
-      artWrap.hidden = false;
-      centerArt(false);
-    }
   }
 
   function preselectItem() {
@@ -159,75 +238,86 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
     return items.find((a) => a.id === activeId) || items[0];
   }
 
-  // ---- art picker (lazy thumbnails) ----
+  // ---- art picker: a click ADDS the piece to the wall ----
   items.forEach((item) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "wall-viz-thumb";
     btn.dataset.id = item.id;
     btn.setAttribute("role", "option");
-    btn.title = item.name || "";
+    btn.setAttribute("aria-selected", "false");
+    btn.title = `Add ${item.name || "this piece"} to your wall`;
     btn.innerHTML = `<img src="${item.image}" alt="${item.name || ""}" loading="lazy" draggable="false" />`;
-    btn.addEventListener("click", () => selectArt(item));
+    btn.addEventListener("click", () => {
+      // Without a photo there is nowhere to place it — send the visitor to the file picker.
+      if (!hasPhoto()) {
+        fileInput.click();
+        return;
+      }
+      addPiece(item);
+    });
     picker.appendChild(btn);
   });
 
-  // ---- move (drag) ----
-  let dragging = false;
-  let dragStart = null;
-  artWrap.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    dragStart = { x: e.clientX, y: e.clientY, cx: t.cx, cy: t.cy };
-    artWrap.setPointerCapture(e.pointerId);
-    artWrap.classList.add("is-grabbing");
-  });
-  artWrap.addEventListener("pointermove", (e) => {
-    if (!dragging || pinch.active) return;
-    t.cx = dragStart.cx + (e.clientX - dragStart.x);
-    t.cy = dragStart.cy + (e.clientY - dragStart.y);
-    applyTransform();
-  });
-  const endDrag = (e) => {
-    dragging = false;
-    artWrap.classList.remove("is-grabbing");
-    try { artWrap.releasePointerCapture(e.pointerId); } catch {}
-  };
-  artWrap.addEventListener("pointerup", endDrag);
-  artWrap.addEventListener("pointercancel", endDrag);
+  // ---- move (drag), per piece ----
+  function attachDrag(piece) {
+    let dragging = false;
+    let start = null;
+    piece.wrap.addEventListener("pointerdown", (e) => {
+      selectPiece(piece);
+      dragging = true;
+      start = { x: e.clientX, y: e.clientY, cx: piece.t.cx, cy: piece.t.cy };
+      try { piece.wrap.setPointerCapture(e.pointerId); } catch {}
+      piece.wrap.classList.add("is-grabbing");
+    });
+    piece.wrap.addEventListener("pointermove", (e) => {
+      if (!dragging || pinch.active) return;
+      piece.t.cx = start.cx + (e.clientX - start.x);
+      piece.t.cy = start.cy + (e.clientY - start.y);
+      applyTransform(piece);
+    });
+    const end = (e) => {
+      dragging = false;
+      piece.wrap.classList.remove("is-grabbing");
+      try { piece.wrap.releasePointerCapture(e.pointerId); } catch {}
+    };
+    piece.wrap.addEventListener("pointerup", end);
+    piece.wrap.addEventListener("pointercancel", end);
+  }
 
-  // ---- wheel zoom ----
+  // ---- wheel zoom (selected piece) ----
   stage.addEventListener(
     "wheel",
     (e) => {
-      if (photo.hidden) return;
+      if (!hasPhoto() || !selected) return;
       e.preventDefault();
       const factor = Math.exp(-e.deltaY * 0.0016);
-      t.scale = clamp(t.scale * factor, LIMITS.scale[0], LIMITS.scale[1]);
-      applyTransform();
+      selected.t.scale = clamp(selected.t.scale * factor, LIMITS.scale[0], LIMITS.scale[1]);
+      applyTransform(selected);
       syncSliders();
     },
     { passive: false },
   );
 
-  // ---- pinch zoom (touch) ----
+  // ---- pinch zoom (touch, selected piece) ----
   const pinch = { active: false, startDist: 0, startScale: 1, pointers: new Map() };
   stage.addEventListener("pointerdown", (e) => {
     pinch.pointers.set(e.pointerId, e);
-    if (pinch.pointers.size === 2) {
+    if (pinch.pointers.size === 2 && selected) {
       const [a, b] = [...pinch.pointers.values()];
       pinch.active = true;
       pinch.startDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
-      pinch.startScale = t.scale;
+      pinch.startScale = selected.t.scale;
     }
   });
   stage.addEventListener("pointermove", (e) => {
     if (!pinch.pointers.has(e.pointerId)) return;
     pinch.pointers.set(e.pointerId, e);
-    if (pinch.active && pinch.pointers.size >= 2) {
+    if (pinch.active && pinch.pointers.size >= 2 && selected) {
       const [a, b] = [...pinch.pointers.values()];
       const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
-      t.scale = clamp(pinch.startScale * (dist / pinch.startDist), LIMITS.scale[0], LIMITS.scale[1]);
-      applyTransform();
+      selected.t.scale = clamp(pinch.startScale * (dist / pinch.startDist), LIMITS.scale[0], LIMITS.scale[1]);
+      applyTransform(selected);
       syncSliders();
     }
   });
@@ -238,32 +328,52 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
   stage.addEventListener("pointerup", dropPointer);
   stage.addEventListener("pointercancel", dropPointer);
 
-  // ---- sliders ----
+  // ---- sliders act on the selected piece ----
   Object.entries(sliders).forEach(([key, input]) => {
     input.addEventListener("input", () => {
+      if (!selected) return;
       const val = parseFloat(input.value);
+      const t = selected.t;
       if (key === "scale") t.scale = clamp(val, LIMITS.scale[0], LIMITS.scale[1]);
       else if (key === "rot") t.rot = clamp(val, LIMITS.rot[0], LIMITS.rot[1]);
       else if (key === "tiltX") t.tiltX = clamp(val, LIMITS.tilt[0], LIMITS.tilt[1]);
       else if (key === "tiltY") t.tiltY = clamp(val, LIMITS.tilt[0], LIMITS.tilt[1]);
-      applyTransform();
+      applyTransform(selected);
     });
   });
 
-  // ---- upload / reset / download ----
+  // ---- upload / reset / remove / clear / download ----
   modal.querySelectorAll("[data-wv-upload]").forEach((b) => b.addEventListener("click", () => fileInput.click()));
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
     if (file) setPhoto(URL.createObjectURL(file));
     fileInput.value = "";
   });
-  q("[data-wv-reset]").addEventListener("click", () => centerArt(true));
+  q("[data-wv-reset]").addEventListener("click", () => {
+    if (!selected) return;
+    const pr = photoRect();
+    Object.assign(selected.t, { cx: pr.cx, cy: pr.cy, scale: 1, rot: 0, tiltX: 0, tiltY: 0 });
+    sizePiece(selected);
+    syncSliders();
+  });
+  removeBtn.addEventListener("click", () => selected && removePiece(selected));
+  clearBtn.addEventListener("click", clearPieces);
   downloadBtn.addEventListener("click", () => downloadComposite());
+
+  // Clicking empty stage space deselects, so sliders don't secretly move a hidden piece.
+  stage.addEventListener("pointerdown", (e) => {
+    if (e.target === stage || e.target === photo) selectPiece(null);
+  });
 
   // ---- close handling ----
   modal.querySelectorAll("[data-wv-close]").forEach((b) => b.addEventListener("click", close));
   const onKey = (e) => {
-    if (e.key === "Escape" && !modal.hidden) close();
+    if (modal.hidden) return;
+    if (e.key === "Escape") close();
+    if ((e.key === "Delete" || e.key === "Backspace") && selected && e.target === document.body) {
+      e.preventDefault();
+      removePiece(selected);
+    }
   };
 
   function open(artId) {
@@ -271,11 +381,14 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
     modal.hidden = false;
     launch.setAttribute("aria-expanded", "true");
     document.addEventListener("keydown", onKey);
-    const target = (artId && items.find((a) => a.id === artId)) || (currentArt ?? preselectItem());
-    // render the picker selection + art element even before a photo exists
-    currentArt = null;
-    selectArt(target);
-    (photo.hidden ? q("[data-wv-upload]") : downloadBtn)?.focus?.();
+    // Opening from a specific product drops that piece straight onto an existing photo.
+    if (artId && hasPhoto()) {
+      const item = items.find((a) => a.id === artId);
+      if (item) addPiece(item);
+    }
+    refreshButtons();
+    syncSliders();
+    (hasPhoto() ? downloadBtn : q("[data-wv-upload]"))?.focus?.();
   }
 
   function close() {
@@ -285,11 +398,11 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
     lastFocus?.focus?.();
   }
 
-  // ---- download (2D canvas composite) ----
+  // ---- download (2D canvas composite of every placed piece) ----
   // Faithfully captures position / zoom / rotation; tilt (a 3D perspective on screen) is
   // approximated with a skew so the exported image reads the same direction as the preview.
   function downloadComposite() {
-    if (photo.hidden || !currentArt || !art.naturalWidth) return;
+    if (!hasPhoto() || !pieces.length) return;
     const rect = stage.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const W = Math.round(rect.width * dpr);
@@ -310,25 +423,28 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
     else dw = H * pAsp;
     ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
 
-    // art at the same on-screen transform
-    const artW = parseFloat(art.style.width) * dpr;
-    const artH = artW / (art.naturalWidth / art.naturalHeight);
-    ctx.save();
-    ctx.translate(t.cx * dpr, t.cy * dpr);
-    ctx.rotate((t.rot * Math.PI) / 180);
-    const skewX = Math.tan((-t.tiltY * 0.6 * Math.PI) / 180);
-    const skewY = Math.tan((t.tiltX * 0.6 * Math.PI) / 180);
-    ctx.transform(1, skewY, skewX, 1, 0, 0);
-    ctx.scale(t.scale, t.scale);
-    ctx.drawImage(art, -artW / 2, -artH / 2, artW, artH);
-    ctx.restore();
+    // every piece at its own on-screen transform, in stacking order
+    pieces.forEach(({ img, t }) => {
+      if (!img.naturalWidth) return;
+      const artW = parseFloat(img.style.width) * dpr;
+      const artH = artW / (img.naturalWidth / img.naturalHeight);
+      ctx.save();
+      ctx.translate(t.cx * dpr, t.cy * dpr);
+      ctx.rotate((t.rot * Math.PI) / 180);
+      const skewX = Math.tan((-t.tiltY * 0.6 * Math.PI) / 180);
+      const skewY = Math.tan((t.tiltX * 0.6 * Math.PI) / 180);
+      ctx.transform(1, skewY, skewX, 1, 0, 0);
+      ctx.scale(t.scale, t.scale);
+      ctx.drawImage(img, -artW / 2, -artH / 2, artW, artH);
+      ctx.restore();
+    });
 
     canvas.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `black-aesthetics-${currentArt.id}-on-wall.png`;
+      a.download = `black-aesthetics-on-wall.png`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }, "image/png");
@@ -337,6 +453,7 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
   launch.addEventListener("click", () => open());
   document.body.appendChild(launch);
   document.body.appendChild(modal);
+  syncSliders();
 
-  return { open, close, launch, modal, _setPhotoForTest: setPhoto };
+  return { open, close, launch, modal, _setPhotoForTest: setPhoto, _pieces: pieces };
 }

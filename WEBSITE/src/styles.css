@@ -2671,16 +2671,34 @@ input:focus-visible {
 .wall-viz-empty p { margin: 0; max-width: 320px; }
 .wall-viz-hint { font-size: 11px; color: rgba(255, 242, 220, 0.4); }
 
+/* Holds every placed piece; pointer events pass through the layer to the pieces themselves so a
+   click on bare wall still deselects. */
+.wall-viz-pieces {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform-style: preserve-3d;
+}
 .wall-viz-artwrap {
   position: absolute;
   left: 50%;
   top: 50%;
+  pointer-events: auto;
   transform-style: preserve-3d;
   cursor: grab;
   touch-action: none;
   will-change: transform;
 }
 .wall-viz-artwrap.is-grabbing { cursor: grabbing; }
+/* Which piece the sliders are driving. Outline sits on the wrapper so it is never exported. */
+.wall-viz-artwrap.is-selected::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 1px dashed var(--gold);
+  border-radius: 4px;
+  pointer-events: none;
+}
 .wall-viz-art {
   display: block;
   width: 240px;
@@ -2721,10 +2739,12 @@ input:focus-visible {
   flex: 0 0 auto;
   width: 54px;
   height: 54px;
-  padding: 0;
+  /* Most pieces are near-black silhouettes: on a dark tile they were invisible. A warm plaster
+     tone (the gallery wall itself) makes them read, and matches the storefront's palette. */
+  padding: 4px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #141010;
+  background: linear-gradient(180deg, #efe3ce 0%, #d8c6a6 100%);
   cursor: pointer;
   overflow: hidden;
   transition: border-color 0.15s ease, transform 0.15s ease;
@@ -2740,6 +2760,7 @@ input:focus-visible {
 }
 .wall-viz-slider { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
 .wall-viz-slider input[type="range"] { width: 100%; accent-color: var(--gold); }
+.wall-viz-slider input[type="range"]:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .wall-viz-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .wall-viz-btn {
