@@ -2,6 +2,7 @@ import "./styles.css";
 import { categories, getCategory, getHeroProduct, getProduct, getSubcollectionHeroProduct, getSubcollectionProducts } from "./data/catalog.js";
 import { GalleryScene } from "./scene/GalleryScene.js";
 import { createHud } from "./ui/hud.js";
+import { createWallPreview } from "./ui/wallPreview.js";
 
 const canvas = document.querySelector("#gallery-canvas");
 const hudRoot = document.querySelector("#hud-root");
@@ -51,6 +52,19 @@ hud = createHud({
   onPreviewModeChange: (mode) => gallery.setPreviewMode(mode),
   getLaneInfo: () => gallery.getMobileLaneItem(),
 });
+
+// "See it on your wall": every piece that has a single flat image (digital posters + wall-art
+// silhouettes) can be placed onto a user-uploaded room photo. Layered/3D pieces have no flat
+// source, so they are omitted.
+const wallArtItems = categories
+  .flatMap((category) => category.products)
+  .filter((product) => product.image && (product.kind === "digital" || product.kind === "wall-art"))
+  .map((product) => ({ id: product.id, name: product.name, image: product.image, kind: product.kind }));
+const wallPreview = createWallPreview({
+  artItems: wallArtItems,
+  getActiveProductId: () => appState.activeProductId,
+});
+if (import.meta.env.DEV) window.__wallPreview = wallPreview;
 
 function sync() {
   gallery.setState(appState);
