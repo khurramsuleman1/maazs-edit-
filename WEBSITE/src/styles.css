@@ -2763,6 +2763,7 @@ input:focus-visible {
 .wall-viz-slider input[type="range"]:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .wall-viz-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.wall-viz-note { margin: -4px 0 0; font-size: 11px; color: rgba(255, 242, 220, 0.42); }
 .wall-viz-btn {
   padding: 9px 16px;
   border: 1px solid var(--line-strong);

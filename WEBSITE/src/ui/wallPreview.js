@@ -74,6 +74,7 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
           <button type="button" class="wall-viz-btn" data-wv-clear disabled>Clear all</button>
           <button type="button" class="wall-viz-btn primary" data-wv-download disabled>Download</button>
         </div>
+        <p class="wall-viz-note">Downloads are saved with a Black Aesthetics watermark.</p>
       </div>
     </div>
     <input type="file" accept="image/*" class="wall-viz-file" data-wv-file hidden />
@@ -129,7 +130,7 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
   function photoRect() {
     const rect = stage.getBoundingClientRect();
     if (!hasPhoto() || !photo.naturalWidth) {
-      return { width: rect.width, height: rect.height, cx: rect.width / 2, cy: rect.height / 2 };
+      return { left: 0, top: 0, width: rect.width, height: rect.height, cx: rect.width / 2, cy: rect.height / 2 };
     }
     const pAsp = photo.naturalWidth / photo.naturalHeight;
     const sAsp = rect.width / rect.height;
@@ -137,7 +138,14 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
     let h = rect.height;
     if (pAsp > sAsp) h = rect.width / pAsp;
     else w = rect.height * pAsp;
-    return { width: w, height: h, cx: rect.width / 2, cy: rect.height / 2 };
+    return {
+      left: (rect.width - w) / 2,
+      top: (rect.height - h) / 2,
+      width: w,
+      height: h,
+      cx: rect.width / 2,
+      cy: rect.height / 2,
+    };
   }
 
   function sizePiece(piece) {
@@ -398,56 +406,136 @@ export function createWallPreview({ artItems = [], getActiveProductId = () => nu
     lastFocus?.focus?.();
   }
 
+  // ---- watermark ----
+  // The brand mark is a black SVG with a viewBox but no intrinsic size, so it is rasterised
+  // explicitly and tinted to the cream brand colour (source-in) to stay legible on dark walls.
+  let watermarkLogo = null;
+  function getWatermarkLogo() {
+    if (watermarkLogo) return Promise.resolve(watermarkLogo);
+    return fetch("/logo-blackaesthetics.svg")
+      .then((r) => r.text())
+      .then(
+        (svgText) =>
+          new Promise((resolve, reject) => {
+            const url = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml" }));
+            const img = new Image();
+            img.onload = () => {
+              const S = 512;
+              const c = document.createElement("canvas");
+              c.width = S;
+              c.height = S;
+              const g = c.getContext("2d");
+              g.drawImage(img, 0, 0, S, S);
+              g.globalCompositeOperation = "source-in";
+              g.fillStyle = "#fff3df";
+              g.fillRect(0, 0, S, S);
+              URL.revokeObjectURL(url);
+              watermarkLogo = c;
+              resolve(c);
+            };
+            img.onerror = () => {
+              URL.revokeObjectURL(url);
+              reject(new Error("logo failed"));
+            };
+            img.src = url;
+          }),
+      );
+  }
+
+  // Bottom-right lockup: brand mark + wordmark + site. Drawn with a soft shadow so it reads on
+  // both bright and dark walls, and sized relative to the export so it scales with the image.
+  function drawWatermark(ctx, logo, W, H) {
+    const unit = Math.min(W, H);
+    const mark = Math.max(34, Math.round(unit * 0.085));
+    const gap = Math.round(mark * 0.32);
+    const margin = Math.round(unit * 0.038);
+    const nameSize = Math.max(11, Math.round(mark * 0.31));
+    const siteSize = Math.max(9, Math.round(mark * 0.22));
+
+    ctx.save();
+    ctx.textBaseline = "alphabetic";
+    ctx.font = `600 ${nameSize}px Inter, system-ui, -apple-system, "Segoe UI", sans-serif`;
+    const nameW = ctx.measureText("BLACK AESTHETICS").width;
+    ctx.font = `400 ${siteSize}px Inter, system-ui, -apple-system, "Segoe UI", sans-serif`;
+    const siteW = ctx.measureText("blackaestheticspk.com").width;
+
+    const textW = Math.max(nameW, siteW);
+    const totalW = (logo ? mark + gap : 0) + textW;
+    const left = W - margin - totalW;
+    const bottom = H - margin;
+
+    ctx.shadowColor = "rgba(0,0,0,0.55)";
+    ctx.shadowBlur = Math.round(mark * 0.28);
+    ctx.shadowOffsetY = Math.round(mark * 0.04);
+
+    if (logo) {
+      ctx.globalAlpha = 0.92;
+      ctx.drawImage(logo, left, bottom - mark, mark, mark);
+      ctx.globalAlpha = 1;
+    }
+
+    const textLeft = left + (logo ? mark + gap : 0);
+    ctx.fillStyle = "#fff3df";
+    ctx.font = `600 ${nameSize}px Inter, system-ui, -apple-system, "Segoe UI", sans-serif`;
+    ctx.fillText("BLACK AESTHETICS", textLeft, bottom - siteSize - Math.round(mark * 0.18));
+    ctx.globalAlpha = 0.82;
+    ctx.font = `400 ${siteSize}px Inter, system-ui, -apple-system, "Segoe UI", sans-serif`;
+    ctx.fillText("blackaestheticspk.com", textLeft, bottom - Math.round(mark * 0.04));
+    ctx.restore();
+  }
+
   // ---- download (2D canvas composite of every placed piece) ----
-  // Faithfully captures position / zoom / rotation; tilt (a 3D perspective on screen) is
-  // approximated with a skew so the exported image reads the same direction as the preview.
-  function downloadComposite() {
-    if (!hasPhoto() || !pieces.length) return;
-    const rect = stage.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const W = Math.round(rect.width * dpr);
-    const H = Math.round(rect.height * dpr);
-    const canvas = document.createElement("canvas");
-    canvas.width = W;
-    canvas.height = H;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, W, H);
+  // Exports the PHOTO only (letterbox bars cropped away) at the photo's own resolution, so the
+  // saved image is shareable quality. Faithfully captures position / zoom / rotation; tilt (a 3D
+  // perspective on screen) is approximated with a skew so the export reads the same direction.
+  const EXPORT_MAX_EDGE = 2400;
 
-    // photo drawn with object-fit: contain (matches the stage CSS)
-    const pAsp = photo.naturalWidth / photo.naturalHeight;
-    const sAsp = rect.width / rect.height;
-    let dw = W;
-    let dh = H;
-    if (pAsp > sAsp) dh = W / pAsp;
-    else dw = H * pAsp;
-    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  async function downloadComposite() {
+    if (!hasPhoto() || !pieces.length || !photo.naturalWidth) return;
+    downloadBtn.disabled = true;
+    try {
+      const pr = photoRect();
+      const capScale = Math.min(1, EXPORT_MAX_EDGE / Math.max(photo.naturalWidth, photo.naturalHeight));
+      const W = Math.round(photo.naturalWidth * capScale);
+      const H = Math.round(photo.naturalHeight * capScale);
+      // CSS pixels (stage space) -> export pixels
+      const s = W / pr.width;
 
-    // every piece at its own on-screen transform, in stacking order
-    pieces.forEach(({ img, t }) => {
-      if (!img.naturalWidth) return;
-      const artW = parseFloat(img.style.width) * dpr;
-      const artH = artW / (img.naturalWidth / img.naturalHeight);
-      ctx.save();
-      ctx.translate(t.cx * dpr, t.cy * dpr);
-      ctx.rotate((t.rot * Math.PI) / 180);
-      const skewX = Math.tan((-t.tiltY * 0.6 * Math.PI) / 180);
-      const skewY = Math.tan((t.tiltX * 0.6 * Math.PI) / 180);
-      ctx.transform(1, skewY, skewX, 1, 0, 0);
-      ctx.scale(t.scale, t.scale);
-      ctx.drawImage(img, -artW / 2, -artH / 2, artW, artH);
-      ctx.restore();
-    });
+      const canvas = document.createElement("canvas");
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(photo, 0, 0, W, H);
 
-    canvas.toBlob((blob) => {
+      pieces.forEach(({ img, t }) => {
+        if (!img.naturalWidth) return;
+        const artW = parseFloat(img.style.width) * s;
+        const artH = artW / (img.naturalWidth / img.naturalHeight);
+        ctx.save();
+        ctx.translate((t.cx - pr.left) * s, (t.cy - pr.top) * s);
+        ctx.rotate((t.rot * Math.PI) / 180);
+        const skewX = Math.tan((-t.tiltY * 0.6 * Math.PI) / 180);
+        const skewY = Math.tan((t.tiltX * 0.6 * Math.PI) / 180);
+        ctx.transform(1, skewY, skewX, 1, 0, 0);
+        ctx.scale(t.scale, t.scale);
+        ctx.drawImage(img, -artW / 2, -artH / 2, artW, artH);
+        ctx.restore();
+      });
+
+      const logo = await getWatermarkLogo().catch(() => null);
+      drawWatermark(ctx, logo, W, H);
+
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
       if (!blob) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `black-aesthetics-on-wall.png`;
+      a.download = "black-aesthetics-my-wall.png";
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, "image/png");
+    } finally {
+      refreshButtons();
+    }
   }
 
   launch.addEventListener("click", () => open());
